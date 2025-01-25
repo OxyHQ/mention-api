@@ -1,10 +1,12 @@
 import mongoose from "mongoose";
 import Post from "../models/Post";
 
+import dotenv from "dotenv";
+
+dotenv.config();
+
 const seedPosts = async () => {
-  await mongoose.connect(
-    "mongodb+srv://oxy:eIhvjPXoARTuGGZA@cluster0oxy.lh5pg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0Oxy"
-  );
+  await mongoose.connect(process.env.MONGODB_URI || "");
 
   const posts = [
     {
@@ -22,11 +24,11 @@ const seedPosts = async () => {
           },
         },
         labels: [],
-        createdAt: new Date("2023-04-29T20:25:48.941Z"),
+        created_at: new Date("2023-04-29T20:25:48.941Z"),
       },
       record: {
         $type: "app.bsky.feed.post",
-        createdAt: new Date("2024-12-20T03:40:33.596Z"),
+        created_at: new Date("2024-12-20T03:40:33.596Z"),
         embed: {},
         langs: ["en"],
         text: "Billionaires have more money than they could ever need but never enough to fill the holes in their souls. They would send every last one of you into an early grave if it meant paying one cent less in taxes.",
@@ -54,11 +56,11 @@ const seedPosts = async () => {
           },
         },
         labels: [],
-        createdAt: new Date("2024-11-07T20:30:13.887Z"),
+        created_at: new Date("2024-11-07T20:30:13.887Z"),
       },
       record: {
         $type: "app.bsky.feed.post",
-        createdAt: new Date("2024-12-19T21:38:33.806Z"),
+        created_at: new Date("2024-12-19T21:38:33.806Z"),
         embed: {},
         langs: ["en"],
         text: "Trying to imagine pitching this movie 50 years ago:\n“So this guy from apartheid goes to America and cons his way to collecting half a trillion dollars and buys a President with it. Then he starts to order Congress around from his computer which is actually a portable telephone.”",

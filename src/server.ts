@@ -2,14 +2,16 @@ import express from "express";
 import http from "http";
 import mongoose from "mongoose";
 import { Server as SocketIOServer } from "socket.io";
-import cors from "cors"; // Import cors
-import itemsRouter from "./routes/items";
-import postsRouter from "./routes/posts"; // Import postsRouter
-import profilesRouter from "./routes/profiles"; // Import profilesRouter
-import Item from "./models/Item";
-import dotenv from "dotenv"; // Import dotenv
+import cors from "cors";
+import postsRouter from "./routes/posts";
+import profilesRouter from "./routes/profiles";
+import usersRouter from "./routes/users";
+import dotenv from "dotenv";
+import fileRoutes from "./routes/files";
+import listsRoutes from "./routes/lists";
+import hashtagsRoutes from "./routes/hashtags";
 
-dotenv.config(); // Load environment variables
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -20,19 +22,12 @@ app.use(express.json());
 app.use(cors()); // Use cors middleware
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI || "", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-} as mongoose.ConnectOptions);
+mongoose.connect(process.env.MONGODB_URI || "");
 
 const db = mongoose.connection;
 db.on("error", console.error.bind(console, "MongoDB connection error:"));
 db.once("open", () => {
   console.log("Connected to MongoDB");
-
-  Item.watch().on("change", (change) => {
-    io.emit("itemsUpdate", change);
-  });
 });
 
 // Socket.IO Connection
@@ -49,9 +44,12 @@ app.get("/api", (req, res) => {
   res.json({ message: "Welcome to the API" });
 });
 
-app.use("/api/items", itemsRouter);
-app.use("/api/posts", postsRouter); // Use postsRouter
-app.use("/api/profiles", profilesRouter); // Use profilesRouter
+app.use("/api/posts", postsRouter);
+app.use("/api/profiles", profilesRouter);
+app.use("/api/users", usersRouter);
+app.use("/api/files", fileRoutes);
+app.use("/api/lists", listsRoutes);
+app.use("/api/hashtags", hashtagsRoutes);
 
 // Start the server
 const PORT = process.env.PORT || 3000;

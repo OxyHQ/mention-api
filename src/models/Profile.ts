@@ -1,9 +1,11 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export interface IProfile extends Document {
-  did: string;
-  handle: string;
-  displayName: string;
+  userID: string;
+  name: {
+    first: string;
+    last: string;
+  };
   avatar: string;
   associated: {
     lists: number;
@@ -12,7 +14,7 @@ export interface IProfile extends Document {
     labeler: boolean;
   };
   labels: string[];
-  createdAt: Date;
+  created_at: Date;
   description: string;
   indexedAt: Date;
   banner: string;
@@ -23,12 +25,19 @@ export interface IProfile extends Document {
     cid: string;
     uri: string;
   };
+  _count: {
+    followers: number;
+    following: number;
+    posts: number;
+  };
 }
 
 const ProfileSchema: Schema = new Schema({
-  did: { type: String, required: true },
-  handle: { type: String, required: true },
-  displayName: { type: String, required: true },
+  userID: { type: String, required: true },
+  name: {
+    first: { type: String, required: false },
+    last: { type: String, required: false },
+  },
   avatar: { type: String, required: true },
   associated: {
     lists: { type: Number, required: true },
@@ -37,7 +46,7 @@ const ProfileSchema: Schema = new Schema({
     labeler: { type: Boolean, required: true },
   },
   labels: { type: [String], required: true },
-  createdAt: { type: Date, required: true },
+  created_at: { type: Date, required: true },
   description: { type: String, required: true },
   indexedAt: { type: Date, required: true },
   banner: { type: String, required: true },
@@ -47,6 +56,11 @@ const ProfileSchema: Schema = new Schema({
   pinnedPost: {
     cid: { type: String, required: true },
     uri: { type: String, required: true },
+  },
+  _count: {
+    followers: { type: Number, required: true },
+    following: { type: Number, required: true },
+    posts: { type: Number, required: true },
   },
 });
 

@@ -1,8 +1,57 @@
-import express from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import express, { RequestHandler } from "express";
 import User from "../models/User";
 
 const router = express.Router();
+
+
+// Get user ID by username
+const getUserIDbyUsername: RequestHandler = async (req, res) => {
+    try {
+        const { username } = req.params;
+        const user = await User.findOne({ username });
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+        res.json({ id: user._id });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching profile", error });
+  }
+};
+
+// Get user by ID
+const getUserByID: RequestHandler = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id);
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching user", error });
+    }
+};
+
+// Update a user by ID
+const updateUser: RequestHandler = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = req.body;
+        const updatedUser = await User.findByIdAndUpdate(id, updateData, { new: true });
+        if (!updatedUser) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+        res.json(updatedUser);
+    } catch (error) {
+        res.status(500).json({ message: "Error updating user", error });
+    }
+};
+
+router.get("/username-to-id/:username", getUserIDbyUsername);
+router.get("/:id", getUserByID);
+router.put("/:id", updateUser);
 
 export default router;
