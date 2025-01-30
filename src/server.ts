@@ -19,7 +19,8 @@ const io = new SocketIOServer(server);
 
 // Middleware
 app.use(express.json());
-app.use(cors()); // Use cors middleware
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || "");

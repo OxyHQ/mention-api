@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { GridFSBucket } from "mongodb"; // Update import
+import { GridFSBucket } from "mongodb";
 import { GridFsStorage } from "multer-gridfs-storage";
 import multer from "multer";
 import dotenv from "dotenv";
@@ -8,11 +8,11 @@ dotenv.config();
 
 const connPromise = mongoose.connect(process.env.MONGODB_URI || "");
 
-let gfs: GridFSBucket; // Update type
+let gfs: GridFSBucket;
 
 connPromise.then((conn) => {
   if (conn.connection.db) {
-    gfs = new GridFSBucket(conn.connection.db, { bucketName: "uploads" }); // Update initialization
+    gfs = new GridFSBucket(conn.connection.db, { bucketName: "uploads" });
   } else {
     console.error("Database connection is undefined");
   }
@@ -24,6 +24,7 @@ const storage = new GridFsStorage({
     return {
       bucketName: "uploads",
       filename: `${Date.now()}-${file.originalname}`,
+      metadata: { userId: req.body.userId },
     };
   },
 });

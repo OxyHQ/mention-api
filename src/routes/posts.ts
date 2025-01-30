@@ -8,7 +8,7 @@ const router = express.Router();
 // Create a new post
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { author_id, text, location } = req.body; // Added location to request body
+    const { author_id, text, location, media } = req.body; // Added location to request body
     const newPost = new Post({
       author_id: author_id,
       text: text,
@@ -17,6 +17,7 @@ router.post("/", async (req: Request, res: Response) => {
         type: "Point",
         coordinates: [location?.longitude, location?.latitude], // Added geolocation data
       },
+      media: media,
     });
     await newPost.save();
     res.status(201).json({
@@ -79,6 +80,48 @@ router.get("/", async (req: Request, res: Response) => {
     });
   } catch (error) {
     res.status(500).json({ message: "Error fetching posts", error });
+  }
+});
+
+// Get posts by hashtag
+router.get("/hashtag/:hashtag", async (req: Request, res: Response) => {
+  try {
+    const { hashtag } = req.params;
+    const posts = await Post.find({ text: { $regex: `#${hashtag}`, $options: "i" } });
+
+    const feed = posts.map((post) => ({
+      id: post._id,
+      ...post.toObject(),
+      _count: {
+        likes: 0,
+        quotes: 0,
+        reposts: 0,
+        bookmarks: 0,
+        replies: 0,
+      },
+    }));
+
+    // Fetch related posts
+    const relatedPosts = await Post.find({ text: { $regex: `#${hashtag}`, $options: "i" } }).limit(5);
+
+    // Calculate stats
+    const _count = {
+      totalPosts: posts.length,
+      likes: posts.reduce((acc, post) => acc + (typeof post.likes === 'number' ? post.likes : 0), 0),
+      quotes: posts.reduce((acc, post) => acc + (typeof post.quotes === 'number' ? post.quotes : 0), 0),
+      reposts: posts.reduce((acc, post) => acc + (typeof post.reposts === 'number' ? post.reposts : 0), 0),
+      bookmarks: posts.reduce((acc, post) => acc + (typeof post.bookmarks === 'number' ? post.bookmarks : 0), 0),
+      replies: posts.reduce((acc, post) => acc + (typeof post.replies === 'number' ? post.replies : 0), 0),
+    };
+
+    res.json({
+      posts: feed,
+      relatedPosts,
+      _count,
+      cursor: "",
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching posts by hashtag", error });
   }
 });
 
