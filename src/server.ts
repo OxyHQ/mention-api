@@ -11,6 +11,11 @@ import fileRoutes from "./routes/files";
 import listsRoutes from "./routes/lists";
 import hashtagsRoutes from "./routes/hashtags";
 import chat from "./routes/chat";
+import authRouter from "./routes/auth";
+import { authenticateToken, authorizeRoles, revokeToken, checkSessionExpiration } from "./middleware/auth";
+import { rateLimiter, bruteForceProtection, csrfProtection } from "./middleware/security";
+import { mfaMiddleware } from "./middleware/mfa";
+import socketUtils from "./utils/socket";
 
 dotenv.config();
 
@@ -22,6 +27,10 @@ const io = new SocketIOServer(server, { cors: { origin: "*" } });
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
+app.use(rateLimiter);
+app.use(bruteForceProtection);
+app.use(csrfProtection);
+app.use(mfaMiddleware);
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || "");
@@ -33,14 +42,7 @@ db.once("open", () => {
 });
 
 // Socket.IO Connection
-io.on("connection", (socket) => {
-  console.log("Client connected");
-  
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnected");
-  });
-});
+socketUtils(io);
 
 // API Routes
 app.get("/api", (req, res) => {
@@ -54,6 +56,7 @@ app.use("/api/files", fileRoutes);
 app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
 app.use("/api/chat", chat(io));
+app.use("/api/auth", authRouter);
 
 // Start the server
 const PORT = process.env.PORT || 3000;
