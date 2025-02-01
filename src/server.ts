@@ -10,12 +10,13 @@ import dotenv from "dotenv";
 import fileRoutes from "./routes/files";
 import listsRoutes from "./routes/lists";
 import hashtagsRoutes from "./routes/hashtags";
+import chat from "./routes/chat";
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new SocketIOServer(server);
+const io = new SocketIOServer(server, { cors: { origin: "*" } });
 
 // Middleware
 app.use(express.json());
@@ -33,7 +34,7 @@ db.once("open", () => {
 
 // Socket.IO Connection
 io.on("connection", (socket) => {
-  console.log("New client connected");
+  console.log("Client connected");
 
   socket.on("disconnect", () => {
     console.log("Client disconnected");
@@ -51,6 +52,7 @@ app.use("/api/users", usersRouter);
 app.use("/api/files", fileRoutes);
 app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
+app.use("/api/chat", chat(io));
 
 // Start the server
 const PORT = process.env.PORT || 3000;
