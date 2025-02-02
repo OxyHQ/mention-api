@@ -3,6 +3,7 @@ import Profile from "../models/Profile";
 import Followers from "../models/Followers";
 import axios from "axios";
 import { z } from "zod"; // Import zod for schema validation
+import User from "../models/User"; // <-- Added User model import
 
 const router = express.Router();
 
@@ -28,9 +29,8 @@ const profileSchema = z.object({
   followersCount: z.number(),
   followsCount: z.number(),
   postsCount: z.number(),
-  pinnedPost: z.object({
-    cid: z.string(),
-    uri: z.string(),
+  pinnedPosts: z.object({
+    id: z.string(),
   }),
   _count: z.object({
     followers: z.number(),
@@ -65,11 +65,12 @@ const getProfiles: RequestHandler = async (req, res) => {
     const profilesWithUsernames = await Promise.all(
       profiles.map(async (profile) => {
         let username = "";
-        try {
-          const response = await axios.get(`http://localhost:3000/api/users/${profile.userID}`);
-          username = response.data.username;
-        } catch (error) {
-          console.error("Error fetching username for user ID:", profile.userID);
+        // Replace API call with MongoDB lookup for username
+        const user = await User.findById(profile.userID);
+        if (user) {
+          username = user.username;
+        } else {
+          console.error("User not found for user ID:", profile.userID);
         }
         return { ...profile.toObject(), username };
       })
@@ -80,7 +81,7 @@ const getProfiles: RequestHandler = async (req, res) => {
   }
 };
 
-// Get a profile by handle
+// Get a profile by ID
 const getProfileById: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
@@ -91,15 +92,10 @@ const getProfileById: RequestHandler = async (req, res) => {
     }
 
     // Fetch additional data from another API
-    let additionalDataResponse;
     let followersCount;
     let followingCount;
 
-    try {
-      additionalDataResponse = await axios.get(`http://localhost:3000/api/users/${id}`);
-    } catch (error) {
-      additionalDataResponse = { data: {} };
-    }
+    const user = await User.findById(profile.userID);
 
     try {
       followersCount = await axios.get(`http://localhost:3000/api/profiles/${id}/followers`);
@@ -116,7 +112,7 @@ const getProfileById: RequestHandler = async (req, res) => {
     // Combine profile data with additional data
     const combinedData = {
       ...profile.toObject(),
-      ...additionalDataResponse.data,
+      username: user ? user.username : "",
       _count: {
         followers: followersCount.data._count,
         following: followingCount.data._count,
@@ -159,7 +155,7 @@ const getFollowing: RequestHandler = async (req, res) => {
 const updateProfile: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = profileSchema.partial().parse(req.body); // Validate request body
+    const updateData = profileSchema.partial().parse(req.body);
     const updatedProfile = await Profile.findByIdAndUpdate(id, updateData, {
       new: true,
     });
