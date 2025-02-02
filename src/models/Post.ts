@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 const PostSchema: Schema = new Schema({
-  author_id: { type: String, required: true },
+  userID: { type: mongoose.Schema.Types.ObjectId, required: true },
   created_at: { type: Date, required: true },
   text: { type: String, required: true },
   source: { type: String, required: false },
