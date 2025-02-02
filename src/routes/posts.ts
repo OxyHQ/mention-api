@@ -8,9 +8,9 @@ const router = express.Router();
 // Create a new post
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { author_id, text, location, media } = req.body; // Added location to request body
+    const { userID, text, location, media } = req.body; // Added location to request body
     const newPost = new Post({
-      author_id: author_id,
+      userID: userID,
       text: text,
       created_at: new Date(),
       location: {
@@ -21,7 +21,7 @@ router.post("/", async (req: Request, res: Response) => {
     });
     await newPost.save();
     res.status(201).json({
-      message: "Create a new post",
+      message: "Post created successfully",
       post: {
         id: newPost._id,
         ...newPost.toObject(),
@@ -42,10 +42,10 @@ router.post("/", async (req: Request, res: Response) => {
 // Get all posts
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const { authorId, text, location } = req.body; // Added query parameters for filtering
+    const { userID, text, location } = req.body; // Added query parameters for filtering
 
     const filter: any = {};
-    if (authorId) filter.authorId = authorId;
+    if (userID) filter.userID = userID;
     if (text) filter.text = { $regex: text, $options: "i" };
     if (location) {
       const [longitude, latitude] = (location as string).split(",");
@@ -70,7 +70,7 @@ router.get("/", async (req: Request, res: Response) => {
           quotes: 0,
           reposts: 0,
           bookmarks: 0,
-          replies: 0,
+          replies: 2,
         },
       }));
 
