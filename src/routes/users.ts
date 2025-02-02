@@ -1,8 +1,7 @@
-import express, { RequestHandler } from "express";
+import express, { RequestHandler, Router, Request, Response } from "express";
 import User from "../models/User";
 
 const router = express.Router();
-
 
 // Get user ID by username
 const getUserIDbyUsername: RequestHandler = async (req, res) => {
