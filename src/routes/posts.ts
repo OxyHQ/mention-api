@@ -2,8 +2,15 @@ import express, { Request, Response } from "express";
 import Post from "../models/Post";
 import User from "../models/User";
 import Bookmark from "../models/Bookmark";
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
+
+// Public routes first
+router.get('/explore', /* ... */);
+
+// Then protect all other routes
+router.use(authMiddleware);
 
 // Create a new post
 router.post("/", async (req: Request, res: Response) => {
@@ -177,7 +184,7 @@ router.get("/bookmarks", async (req: Request, res: Response) => {
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found" + userId });
+      return res.status(404).json({ message: "User not found " + userId });
     }
 
     const bookmarks = await Bookmark.find({ userId })
