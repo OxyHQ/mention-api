@@ -222,88 +222,108 @@ router.get("/bookmarks", async (req: Request, res: Response) => {
 });
 
 // Like a post
-router.post("/:id/like", async (req: Request, res: Response) => {
-  try {
-    const postId = req.params.id;
-    const userId = req.body.userId;
+router.post('/:id/like', async (req: Request, res: Response) => {
+    try {
+        const postId = req.params.id;
+        const userId = req.body.userId;
 
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
+        const post = await Post.findById(postId);
+        if (!post) {
+            return res.status(404).json({ message: 'Post not found' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const existingLike = await Like.findOne({ userId, postId });
+        if (!existingLike) {
+            const newLike = new Like({ userId, postId });
+            await newLike.save();
+
+            const likesCount = await Like.countDocuments({ postId });
+
+            await Post.findByIdAndUpdate(postId, {
+                $set: { '_count.likes': likesCount }
+            });
+
+            // Emit socket event
+            console.log('Emitting postLiked event for post:', postId);
+            io.to(`post:${postId}`).emit('postLiked', {
+                postId: postId.toString(),
+                userId: userId.toString(),
+                likesCount,
+                isLiked: true,
+                _count: {
+                    ...(post._count || {}),
+                    likes: likesCount
+                }
+            });
+
+            res.status(200).json({
+                message: 'Post liked successfully',
+                postId: postId.toString(),
+                likesCount,
+                isLiked: true
+            });
+        } else {
+            const likesCount = await Like.countDocuments({ postId });
+            res.status(200).json({
+                message: 'Post already liked',
+                postId: postId.toString(),
+                likesCount,
+                isLiked: true
+            });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Error liking post', error });
     }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    const existingLike = await Like.findOne({ userId, postId });
-    if (!existingLike) {
-      const newLike = new Like({ userId, postId });
-      await newLike.save();
-      
-      const likesCount = await Like.countDocuments({ postId });
-      
-      await Post.findByIdAndUpdate(postId, { 
-        $set: { '_count.likes': likesCount }
-      });
-
-      // Emit real-time update
-      io.to(`post:${postId}`).emit('postLiked', {
-        postId,
-        userId,
-        likesCount,
-        isLiked: true
-      });
-
-      res.status(200).json({ 
-        message: "Post liked successfully",
-        likesCount
-      });
-    } else {
-      const likesCount = await Like.countDocuments({ postId });
-      res.status(200).json({ 
-        message: "Post already liked",
-        likesCount
-      });
-    }
-  } catch (error) {
-    res.status(500).json({ message: "Error liking post", error });
-  }
 });
 
 // Unlike a post
-router.delete("/:id/like", async (req: Request, res: Response) => {
-  try {
-    const postId = req.params.id;
-    const userId = req.body.userId;
+router.delete('/:id/like', async (req: Request, res: Response) => {
+    try {
+        const postId = req.params.id;
+        const userId = req.body.userId;
 
-    const like = await Like.findOneAndDelete({ userId, postId });
-    if (!like) {
-      return res.status(404).json({ message: "Like not found" });
+        const like = await Like.findOneAndDelete({ userId, postId });
+        if (!like) {
+            return res.status(404).json({ message: 'Like not found' });
+        }
+
+        const likesCount = await Like.countDocuments({ postId });
+
+        const post = await Post.findByIdAndUpdate(postId, {
+            $set: { '_count.likes': likesCount }
+        }, { new: true });
+
+        if (!post) {
+            return res.status(404).json({ message: 'Post not found' });
+        }
+
+        // Emit socket event
+        console.log('Emitting postUnliked event for post:', postId);
+        io.to(`post:${postId}`).emit('postUnliked', {
+            postId: postId.toString(),
+            userId: userId.toString(),
+            likesCount,
+            isLiked: false,
+            _count: {
+                ...(post._count || {}),
+                likes: likesCount
+            }
+        });
+
+        res.status(200).json({
+            message: 'Like removed successfully',
+            postId: postId.toString(),
+            likesCount,
+            isLiked: false
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error removing like', error });
     }
-
-    const likesCount = await Like.countDocuments({ postId });
-    
-    await Post.findByIdAndUpdate(postId, { 
-      $set: { '_count.likes': likesCount }
-    });
-
-    // Emit real-time update
-    io.to(`post:${postId}`).emit('postUnliked', {
-      postId,
-      userId,
-      likesCount,
-      isLiked: false
-    });
-
-    res.status(200).json({ 
-      message: "Like removed successfully",
-      likesCount
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Error removing like", error });
-  }
 });
 
 // Check if a post is liked by user
