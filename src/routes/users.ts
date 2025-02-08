@@ -1,5 +1,6 @@
 import express, { RequestHandler, Router, Request, Response } from "express";
 import User from "../models/User";
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -49,7 +50,11 @@ const updateUser: RequestHandler = async (req, res) => {
     }
 };
 
+// Public routes
 router.get("/username-to-id/:username", getUserIDbyUsername);
+
+// Protected routes
+router.use(authMiddleware);
 router.get("/:id", getUserByID);
 router.put("/:id", updateUser);
 
