@@ -4,18 +4,20 @@ import csrf from "csurf";
 import cookieParser from "cookie-parser"; // Import cookie-parser
 import { Request, Response, NextFunction } from "express";
 
-// Rate limiting middleware
+// Rate limiting middleware (exclude file uploads)
 const rateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 50000, // limit each IP to 100 requests per window
   message: "Too many requests from this IP, please try again later.",
+  skip: (req: Request) => req.path.startsWith('/api/files/upload')
 });
 
-// Brute force protection middleware
+// Brute force protection middleware (exclude file uploads)
 const bruteForceProtection = slowDown({
   windowMs: 15 * 60 * 1000, // 15 minutes
   delayAfter: 50000, // allow 100 requests per 15 minutes, then...
   delayMs: () => 500, // add 500ms delay per request above 100 (new behavior)
+  skip: (req: Request) => req.path.startsWith('/api/files/upload')
 });
 
 // Middleware to parse cookies
