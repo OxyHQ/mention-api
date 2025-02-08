@@ -15,6 +15,7 @@ import hashtagsRoutes from "./routes/hashtags";
 import chat from "./routes/chat";
 import User from "./models/User";
 import Post from "./models/Post";
+import searchRoutes from "./routes/search";
 
 // Import security middlewares
 import { rateLimiter, bruteForceProtection, csrfProtection, parseCookies, csrfErrorHandler } from "./middleware/security";
@@ -174,6 +175,7 @@ app.get("/api", async (req, res) => {
   }
 });
 
+app.use("/api/search", searchRoutes);
 app.use("/api/posts", postsRouter);
 app.use("/api/profiles", profilesRouter);
 app.use("/api/users", usersRouter);
