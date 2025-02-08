@@ -15,7 +15,6 @@ import chat from "./routes/chat";
 import User from "./models/User";
 import Post from "./models/Post";
 
-
 // Import security middlewares
 import { rateLimiter, bruteForceProtection, csrfProtection, parseCookies, csrfErrorHandler } from "./middleware/security";
 
@@ -23,26 +22,95 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new SocketIOServer(server, { cors: { origin: "*" } });
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:8081",
+    credentials: true
+  }
+});
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+// Configure CORS with credentials first
+app.use(cors({
+  origin: process.env.FRONTEND_URL || "http://localhost:8081", // Expo web default port
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Content-Length', 'Accept', 'Accept-Encoding', 'Accept-Language']
+}));
 
-// Add security middlewares
+// Add special logging for file upload requests
+app.use("/api/files/upload", (req, res, next) => {
+  if (req.method === 'POST') {
+    console.log("Incoming file upload request:", {
+      method: req.method,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      origin: req.headers.origin,
+      authorization: !!req.headers.authorization
+    });
+  }
+  next();
+});
+
+// File routes before ANY other middleware
+app.use("/api/files", fileRoutes);
+
+// Cookie parser after file routes
 app.use(parseCookies);
-app.use(rateLimiter);
-app.use(bruteForceProtection);
-//app.use(csrfProtection);
+
+// Rate limiting and brute force protection after file routes
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/files/upload')) {
+    rateLimiter(req, res, next);
+  } else {
+    next();
+  }
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/files/upload')) {
+    bruteForceProtection(req, res, next);
+  } else {
+    next();
+  }
+});
+
+// Body parsing middleware after file routes
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/files/upload')) {
+    express.json()(req, res, next);
+  } else {
+    next();
+  }
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/files/upload')) {
+    express.urlencoded({ extended: true })(req, res, next);
+  } else {
+    next();
+  }
+});
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI || "");
+mongoose.connect(process.env.MONGODB_URI || "", {
+  autoIndex: true,
+  autoCreate: true
+});
 
 const db = mongoose.connection;
-db.on("error", console.error.bind(console, "MongoDB connection error:"));
+db.on("error", (error) => {
+  console.error("MongoDB connection error:", error);
+});
 db.once("open", () => {
-  console.log("Connected to MongoDB");
+  console.log("Connected to MongoDB successfully");
+});
+
+// Initialize models after connection is established
+db.once("open", () => {
+  require("./models/User");
+  require("./models/Profile");
+  require("./models/Post");
+  // ... other models
 });
 
 // Socket.IO Connection
@@ -73,7 +141,6 @@ app.get("/api", async (req, res) => {
 app.use("/api/posts", postsRouter);
 app.use("/api/profiles", profilesRouter);
 app.use("/api/users", usersRouter);
-app.use("/api/files", fileRoutes);
 app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
 app.use("/api/chat", chat(io));
