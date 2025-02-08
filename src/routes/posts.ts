@@ -2,7 +2,9 @@ import express, { Request, Response } from "express";
 import Post from "../models/Post";
 import User from "../models/User";
 import Bookmark from "../models/Bookmark";
+import Like from "../models/Like";
 import { authMiddleware } from '../middleware/auth';
+import { io } from '../server';
 
 const router = express.Router();
 
@@ -49,7 +51,7 @@ router.post("/", async (req: Request, res: Response) => {
 // Get all posts
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const { userID, text, location } = req.body; // Added query parameters for filtering
+    const { userID, text, location } = req.body;
 
     const filter: any = {};
     if (userID) filter.userID = userID;
@@ -62,27 +64,31 @@ router.get("/", async (req: Request, res: Response) => {
             type: "Point",
             coordinates: [parseFloat(longitude), parseFloat(latitude)],
           },
-          $maxDistance: 10000, // 10 km radius
+          $maxDistance: 10000,
         },
       };
     }
 
     const posts = await Post.find(filter);
+    const postsWithCounts = await Promise.all(posts.map(async (post) => {
+      const likesCount = await Like.countDocuments({ postId: post._id });
+      const bookmarksCount = await Bookmark.countDocuments({ postId: post._id });
 
-    const feed = posts.map((post) => ({
-      id: post._id,
-      ...post.toObject(),
+      return {
+        id: post._id,
+        ...post.toObject(),
         _count: {
-          likes: 0,
+          likes: likesCount,
           quotes: 0,
           reposts: 0,
-          bookmarks: 0,
-          replies: 2,
+          bookmarks: bookmarksCount,
+          replies: 0,
         },
-      }));
+      };
+    }));
 
     res.json({
-      posts: feed,
+      posts: postsWithCounts,
       cursor: "",
     });
   } catch (error) {
@@ -212,6 +218,108 @@ router.get("/bookmarks", async (req: Request, res: Response) => {
     res.json({ posts: bookmarkedPosts });
   } catch (error) {
     res.status(500).json({ message: "Error retrieving bookmarked posts", error });
+  }
+});
+
+// Like a post
+router.post("/:id/like", async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const userId = req.body.userId;
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const existingLike = await Like.findOne({ userId, postId });
+    if (!existingLike) {
+      const newLike = new Like({ userId, postId });
+      await newLike.save();
+      
+      const likesCount = await Like.countDocuments({ postId });
+      
+      await Post.findByIdAndUpdate(postId, { 
+        $set: { '_count.likes': likesCount }
+      });
+
+      // Emit real-time update
+      io.to(`post:${postId}`).emit('postLiked', {
+        postId,
+        userId,
+        likesCount,
+        isLiked: true
+      });
+
+      res.status(200).json({ 
+        message: "Post liked successfully",
+        likesCount
+      });
+    } else {
+      const likesCount = await Like.countDocuments({ postId });
+      res.status(200).json({ 
+        message: "Post already liked",
+        likesCount
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error liking post", error });
+  }
+});
+
+// Unlike a post
+router.delete("/:id/like", async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const userId = req.body.userId;
+
+    const like = await Like.findOneAndDelete({ userId, postId });
+    if (!like) {
+      return res.status(404).json({ message: "Like not found" });
+    }
+
+    const likesCount = await Like.countDocuments({ postId });
+    
+    await Post.findByIdAndUpdate(postId, { 
+      $set: { '_count.likes': likesCount }
+    });
+
+    // Emit real-time update
+    io.to(`post:${postId}`).emit('postUnliked', {
+      postId,
+      userId,
+      likesCount,
+      isLiked: false
+    });
+
+    res.status(200).json({ 
+      message: "Like removed successfully",
+      likesCount
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error removing like", error });
+  }
+});
+
+// Check if a post is liked by user
+router.get("/:id/like", async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const userId = req.query.userId as string;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId query parameter is required" });
+    }
+
+    const like = await Like.findOne({ userId, postId });
+    res.status(200).json({ isLiked: !!like });
+  } catch (error) {
+    res.status(500).json({ message: "Error checking like status", error });
   }
 });
 

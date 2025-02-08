@@ -29,6 +29,8 @@ const io = new SocketIOServer(server, {
   }
 });
 
+export { io };  // Export the io instance
+
 // Configure CORS with credentials first
 app.use(cors({
   origin: process.env.FRONTEND_URL || "http://localhost:8081", // Expo web default port
@@ -119,6 +121,18 @@ io.on("connection", (socket) => {
   
   socket.on("disconnect", () => {
     console.log("Client disconnected");
+  });
+
+  // Join post room for real-time updates
+  socket.on("joinPost", (postId: string) => {
+    socket.join(`post:${postId}`);
+    console.log(`Client joined post room: ${postId}`);
+  });
+
+  // Leave post room
+  socket.on("leavePost", (postId: string) => {
+    socket.leave(`post:${postId}`);
+    console.log(`Client left post room: ${postId}`);
   });
 });
 

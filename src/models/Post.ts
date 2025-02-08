@@ -13,11 +13,11 @@ const PostSchema: Schema = new Schema({
   quoted_post: { type: Schema.Types.Mixed, required: false },
   location: { type: Schema.Types.Mixed, required: false },
   _count: {
-    likes: { type: Number, required: false },
-    quotes: { type: Number, required: false },
-    reposts: { type: Number, required: false },
-    bookmarks: { type: Number, required: false },
-    replies: { type: Number, required: false },
+    likes: { type: Number, default: 0 },
+    quotes: { type: Number, default: 0 },
+    reposts: { type: Number, default: 0 },
+    bookmarks: { type: Number, default: 0 },
+    replies: { type: Number, default: 0 },
   },
 });
 
