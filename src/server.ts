@@ -3,6 +3,7 @@ import http from "http";
 import mongoose from "mongoose";
 import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
+import jwt from 'jsonwebtoken';
 import postsRouter from "./routes/posts";
 import profilesRouter from "./routes/profiles";
 import usersRouter from "./routes/users";
@@ -22,14 +23,56 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Initialize Socket.IO before routes
 const io = new SocketIOServer(server, {
   cors: {
     origin: process.env.FRONTEND_URL || "http://localhost:8081",
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   }
 });
 
-export { io };  // Export the io instance
+// Socket.IO auth middleware
+const verifySocketToken = (socket: any, next: any) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication token is required'));
+  }
+  
+  try {
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || 'default_secret');
+    socket.user = decoded;
+    return next();
+  } catch (error) {
+    return next(new Error('Invalid token'));
+  }
+};
+
+io.use(verifySocketToken);
+
+// Socket.IO connection handling
+io.on("connection", (socket) => {
+  console.log("Client connected from ip:", socket.handshake.address);
+  
+  socket.on("disconnect", () => {
+    console.log("Client disconnected");
+  });
+
+  socket.on("joinPost", (postId: string) => {
+    const room = `post:${postId}`;
+    socket.join(room);
+    console.log(`Client ${socket.id} joined room:`, room);
+  });
+
+  socket.on("leavePost", (postId: string) => {
+    const room = `post:${postId}`;
+    socket.leave(room);
+    console.log(`Client ${socket.id} left room:`, room);
+  });
+});
+
+export { io };
 
 // Configure CORS with credentials first
 app.use(cors({
@@ -113,27 +156,6 @@ db.once("open", () => {
   require("./models/Profile");
   require("./models/Post");
   // ... other models
-});
-
-// Socket.IO Connection
-io.on("connection", (socket) => {
-  console.log("Client connected from ip: " + socket.handshake.address);
-  
-  socket.on("disconnect", () => {
-    console.log("Client disconnected");
-  });
-
-  // Join post room for real-time updates
-  socket.on("joinPost", (postId: string) => {
-    socket.join(`post:${postId}`);
-    console.log(`Client joined post room: ${postId}`);
-  });
-
-  // Leave post room
-  socket.on("leavePost", (postId: string) => {
-    socket.leave(`post:${postId}`);
-    console.log(`Client left post room: ${postId}`);
-  });
 });
 
 // API Routes
