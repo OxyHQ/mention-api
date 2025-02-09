@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { Server as SocketIOServer } from "socket.io";
+import { Namespace as SocketNamespace } from "socket.io";
 import jwt from 'jsonwebtoken';
 import { authMiddleware } from "../middleware/auth";
 import MessageModel from "../models/Message.model";
@@ -32,7 +32,7 @@ const verifyToken = (socket: any, next: any) => {
   }
 };
 
-export default (io: SocketIOServer) => {
+export default (io: SocketNamespace) => {
   io.use(verifyToken);
 
   io.on("connection", (socket) => {

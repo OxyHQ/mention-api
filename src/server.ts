@@ -12,12 +12,10 @@ import dotenv from "dotenv";
 import fileRoutes from "./routes/files";
 import listsRoutes from "./routes/lists";
 import hashtagsRoutes from "./routes/hashtags";
-import chat from "./routes/chat";
+import createChatRouter from "./routes/chat";
 import User from "./models/User";
 import Post from "./models/Post";
 import searchRoutes from "./routes/search";
-
-// Import security middlewares
 import { rateLimiter, bruteForceProtection, csrfProtection, parseCookies, csrfErrorHandler } from "./middleware/security";
 
 dotenv.config();
@@ -25,7 +23,7 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO before routes
+// Initialize Socket.IO with namespaces
 const io = new SocketIOServer(server, {
   cors: {
     origin: process.env.FRONTEND_URL || "http://localhost:8081",
@@ -33,6 +31,9 @@ const io = new SocketIOServer(server, {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
   }
 });
+
+// Create chat namespace
+const chatNamespace = io.of('/chat');
 
 // Socket.IO auth middleware
 const verifySocketToken = (socket: any, next: any) => {
@@ -73,7 +74,7 @@ io.on("connection", (socket) => {
   });
 });
 
-export { io };
+export { io, chatNamespace };
 
 // Configure CORS with credentials first
 app.use(cors({
@@ -181,7 +182,7 @@ app.use("/api/profiles", profilesRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
-app.use("/api/chat", chat(io));
+app.use("/api/chat", createChatRouter(chatNamespace));
 app.use("/api/auth", authRouter);
 
 // Add CSRF error handler (should be after routes)
