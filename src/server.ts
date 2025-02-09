@@ -23,23 +23,11 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO with namespaces
-const io = new SocketIOServer(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:8081",
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
-  }
-});
-
-// Create chat namespace
-const chatNamespace = io.of('/chat');
-
-// Socket.IO auth middleware
-const verifySocketToken = (socket: any, next: any) => {
+// Socket token verification middleware
+const verifySocketToken = (socket: any, next: (err?: Error) => void) => {
   const token = socket.handshake.auth.token;
   if (!token) {
-    return next(new Error('Authentication token is required'));
+    return next(new Error('Authentication token required'));
   }
   
   try {
@@ -47,10 +35,35 @@ const verifySocketToken = (socket: any, next: any) => {
     socket.user = decoded;
     return next();
   } catch (error) {
-    return next(new Error('Invalid token'));
+    return next(new Error('Invalid authentication token'));
   }
 };
 
+// Initialize Socket.IO with CORS configuration
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:8081",
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Content-Length', 'Accept', 'Accept-Encoding', 'Accept-Language'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+  },
+  allowEIO3: true, // Allow Engine.IO version 3 clients
+  transports: ['websocket', 'polling']
+});
+
+// Create and configure chat namespace
+const chatNamespace = io.of('/chat');
+
+// Store namespaces in app for route access
+app.set('io', io);
+app.set('chatNamespace', chatNamespace);
+
+// Set up chat routes with socket namespace
+app.use('/api/chat', createChatRouter(chatNamespace));
+
+// Configure main namespace
 io.use(verifySocketToken);
 
 // Socket.IO connection handling
@@ -182,7 +195,6 @@ app.use("/api/profiles", profilesRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
-app.use("/api/chat", createChatRouter(chatNamespace));
 app.use("/api/auth", authRouter);
 
 // Add CSRF error handler (should be after routes)
