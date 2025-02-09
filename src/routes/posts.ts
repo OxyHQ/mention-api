@@ -6,6 +6,15 @@ import Like from "../models/Like";
 import { authMiddleware } from '../middleware/auth';
 import { io } from '../server';
 
+// Define the PostCount type to match the schema
+interface PostCount {
+  likes: number;
+  quotes: number;
+  reposts: number;
+  bookmarks: number;
+  replies: number;
+}
+
 const router = express.Router();
 
 // Public routes first
@@ -17,18 +26,41 @@ router.use(authMiddleware);
 // Create a new post
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { userID, text, location, media } = req.body; // Added location to request body
+    const { userID, text, location, media, in_reply_to_status_id } = req.body;
     const newPost = new Post({
-      userID: userID,
-      text: text,
+      userID,
+      text,
       created_at: new Date(),
-      location: {
+      location: location ? {
         type: "Point",
-        coordinates: [location?.longitude, location?.latitude], // Added geolocation data
-      },
-      media: media,
+        coordinates: [location?.longitude, location?.latitude],
+      } : undefined,
+      media,
+      in_reply_to_status_id,
     });
+
     await newPost.save();
+
+    // If this is a reply, increment the reply count of the parent post
+    if (in_reply_to_status_id) {
+      await Post.findByIdAndUpdate(in_reply_to_status_id, {
+        $inc: { '_count.replies': 1 }
+      });
+    }
+
+    // Emit socket event for the new post
+    io.emit('newPost', {
+      id: newPost._id,
+      ...newPost.toObject(),
+      _count: {
+        likes: 0,
+        quotes: 0,
+        reposts: 0,
+        bookmarks: 0,
+        replies: 0,
+      },
+    });
+
     res.status(201).json({
       message: "Post created successfully",
       post: {
@@ -51,7 +83,7 @@ router.post("/", async (req: Request, res: Response) => {
 // Get all posts
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const { userID, text, location } = req.body;
+    const { userID, text, location } = req.query;
 
     const filter: any = {};
     if (userID) filter.userID = userID;
@@ -69,27 +101,27 @@ router.get("/", async (req: Request, res: Response) => {
       };
     }
 
-    const posts = await Post.find(filter);
-    const postsWithCounts = await Promise.all(posts.map(async (post) => {
-      const likesCount = await Like.countDocuments({ postId: post._id });
-      const bookmarksCount = await Bookmark.countDocuments({ postId: post._id });
+    const posts = await Post.find(filter).sort({ created_at: -1 });
+
+    const postsWithCounts = posts.map(post => {
+      const counts: PostCount = {
+        likes: 0,
+        quotes: 0,
+        reposts: 0,
+        bookmarks: 0,
+        replies: (post._count as any)?.replies || 0
+      };
 
       return {
         id: post._id,
         ...post.toObject(),
-        _count: {
-          likes: likesCount,
-          quotes: 0,
-          reposts: 0,
-          bookmarks: bookmarksCount,
-          replies: 0,
-        },
+        _count: counts
       };
-    }));
+    });
 
     res.json({
+      message: "Posts retrieved successfully",
       posts: postsWithCounts,
-      cursor: "",
     });
   } catch (error) {
     res.status(500).json({ message: "Error fetching posts", error });
@@ -329,12 +361,12 @@ router.get("/:id/like", async (req: Request, res: Response) => {
     const postId = req.params.id;
     const userId = req.query.userId as string;
 
-    if (!userId) {
-      return res.status(400).json({ message: "userId query parameter is required" });
+    if (!postId || !userId) {
+      return res.status(400).json({ message: "Missing required parameters" });
     }
 
     const like = await Like.findOne({ userId, postId });
-    res.status(200).json({ isLiked: !!like });
+    res.json({ isLiked: !!like });
   } catch (error) {
     res.status(500).json({ message: "Error checking like status", error });
   }
