@@ -8,7 +8,7 @@ import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
-// Define the profile schema using zod
+// Update the profile schema to include location and website
 const profileSchema = z.object({
   userID: z.string(),
   name: z.object({
@@ -27,6 +27,9 @@ const profileSchema = z.object({
   description: z.string(),
   indexedAt: z.date(),
   banner: z.string(),
+  // New optional fields
+  location: z.string().optional(),
+  website: z.string().optional(),
   followersCount: z.number(),
   followsCount: z.number(),
   postsCount: z.number(),
@@ -38,13 +41,6 @@ const profileSchema = z.object({
     following: z.number(),
     posts: z.number(),
   }),
-});
-
-const followersSchema = z.object({
-  userID: z.string(),
-  contentID: z.string(),
-  created_at: z.date(),
-  updatedAt: z.date(),
 });
 
 // Define the profile update schema with only editable fields
@@ -111,6 +107,7 @@ const getProfileById: RequestHandler = async (req, res) => {
     const combinedData = {
       ...profile.toObject(),
       username: user?.username || "",
+      joinDate: profile.created_at ? profile.created_at.toISOString() : "",
       _count: {
         followers: followersCount,
         following: followingCount,
