@@ -51,6 +51,8 @@ const ProfileSchema: Schema = new Schema(
     description: { type: String },
     indexedAt: { type: Date },
     banner: { type: String },
+    location: { type: String },
+    website: { type: String },
     followersCount: { type: Number },
     followsCount: { type: Number },
     postsCount: { type: Number },
