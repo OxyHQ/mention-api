@@ -13,9 +13,31 @@ router.get("/", async (req: Request, res: Response) => {
     const results: any = { users: [], posts: [], profiles: [] };
 
     if (type === "all" || type === "users") {
-      results.users = await User.find({ username: searchQuery })
-        .select("username email")
-        .limit(5);
+      const profiles = await Profile.find({ 
+      $or: [
+        { description: searchQuery }
+      ]
+      })
+      .limit(5);
+
+      const userIds = profiles.map((profile: any) => profile.userID);
+      const users = await User.find({ 
+      $or: [
+        { _id: { $in: userIds } },
+        { username: searchQuery }
+      ]
+      })
+      .select("username")
+      .limit(5);
+
+      results.users = users.map((user: any) => {
+      const profile = profiles.find((profile: any) => profile.userID.toString() === user._id.toString());
+      return {
+        ...user.toObject(),
+        description: profile?.description,
+        avatar: profile?.avatar
+      };
+      });
     }
 
     if (type === "all" || type === "posts") {
@@ -27,16 +49,6 @@ router.get("/", async (req: Request, res: Response) => {
       })
       .sort({ created_at: -1 })
       .limit(10);
-    }
-
-    if (type === "all" || type === "profiles") {
-      results.profiles = await Profile.find({ 
-        $or: [
-          { displayName: searchQuery },
-          { bio: searchQuery }
-        ]
-      })
-      .limit(5);
     }
 
     res.json(results);
