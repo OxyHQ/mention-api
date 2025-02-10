@@ -64,11 +64,25 @@ router.post('/conversations/create', async (req: AuthRequest, res: Response) => 
       return res.status(401).json({ error: { message: 'Unauthorized' } });
     }
 
+    // Validate participants array
+    if (!Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ error: { message: 'At least one participant is required' } });
+    }
+
+    // Filter out any invalid or empty participant IDs
+    const validParticipants = participants.filter(id => typeof id === 'string' && id.trim().length > 0);
+
     // Ensure current user is in participants
-    const allParticipants = [...new Set([...participants, userId])];
+    if (!validParticipants.includes(userId)) {
+      validParticipants.push(userId);
+    }
+
+    if (validParticipants.length === 0) {
+      return res.status(400).json({ error: { message: 'No valid participants provided' } });
+    }
 
     const conversationData = {
-      participants: allParticipants,
+      participants: validParticipants,
       type,
       name,
       isPublic,
@@ -87,7 +101,7 @@ router.post('/conversations/create', async (req: AuthRequest, res: Response) => 
     
     // Notify all participants about the new conversation
     if (io) {
-      allParticipants.forEach((participantId: string) => {
+      validParticipants.forEach((participantId: string) => {
         io.to(`user:${participantId}`).emit('conversationCreated', conversation);
       });
     }
@@ -166,13 +180,25 @@ export default (io: SocketNamespace) => {
 
           const { participants, type, name, isPublic, description, ttl, encryptionKey } = data;
           
+          // Validate participants array
+          if (!Array.isArray(participants) || participants.length === 0) {
+            throw new Error('At least one participant is required');
+          }
+
+          // Filter out any invalid or empty participant IDs
+          const validParticipants = participants.filter(id => typeof id === 'string' && id.trim().length > 0);
+          
           // Ensure current user is in participants
-          if (!participants.includes(socket.user.id)) {
-            participants.push(socket.user.id);
+          if (!validParticipants.includes(socket.user.id)) {
+            validParticipants.push(socket.user.id);
+          }
+
+          if (validParticipants.length === 0) {
+            throw new Error('No valid participants provided');
           }
 
           const conversationData = {
-            participants,
+            participants: validParticipants,
             type,
             name,
             isPublic,
@@ -190,8 +216,8 @@ export default (io: SocketNamespace) => {
           socket.join(conversation.id);
           
           // Notify all participants about the new conversation
-          participants.forEach((participantId: string) => {
-            io.to(participantId).emit("conversationCreated", conversation);
+          validParticipants.forEach((participantId: string) => {
+            io.to(`user:${participantId}`).emit("conversationCreated", conversation);
           });
           
           callback?.({ success: true, conversation });
@@ -213,23 +239,68 @@ export default (io: SocketNamespace) => {
 
       socket.on("sendMessage", async (data) => {
         try {
-          const { userID, conversationID, message } = data;
-          const newMessage = { userID, conversationID, message, createdAt: new Date(), status: "sent" };
-          await MessageModel.create(newMessage);
-          io.to(conversationID).emit("message", newMessage);
+          const { conversationID, message } = data;
+          
+          // Validate required fields
+          if (!conversationID || !message) {
+            throw new Error('conversationID and message are required');
+          }
+
+          // Use the authenticated socket user's ID
+          const userID = socket.user?.id;
+          if (!userID) {
+            throw new Error('User not authenticated');
+          }
+
+          const newMessage = { 
+            userID, 
+            conversationID, 
+            message, 
+            createdAt: new Date(), 
+            status: "sent" 
+          };
+
+          const savedMessage = await MessageModel.create(newMessage);
+          io.to(conversationID).emit("message", savedMessage);
         } catch (err) {
           console.error("Error sending message:", err);
+          socket.emit("error", { 
+            message: err instanceof Error ? err.message : "Could not send message" 
+          });
         }
       });
 
       socket.on("sendSecureMessage", async (data) => {
         try {
-          const { userID, conversationID, message, encrypted, encryptionAlgorithm, signature } = data;
-          const secureMessage = { userID, conversationID, message, createdAt: new Date(), status: "sent", encrypted, encryptionAlgorithm, signature };
-          await MessageModel.create(secureMessage);
-          io.to(conversationID).emit("message", secureMessage);
+          const { conversationID, message, encrypted, encryptionAlgorithm, signature } = data;
+          
+          // Validate required fields
+          if (!conversationID || !message) {
+            throw new Error('conversationID and message are required');
+          }
+
+          const userID = socket.user?.id;
+          if (!userID) {
+            throw new Error('User not authenticated');
+          }
+
+          const secureMessage = { 
+            userID, 
+            conversationID, 
+            message, 
+            createdAt: new Date(), 
+            status: "sent", 
+            encrypted, 
+            encryptionAlgorithm, 
+            signature 
+          };
+          const savedMessage = await MessageModel.create(secureMessage);
+          io.to(conversationID).emit("message", savedMessage);
         } catch (err) {
           console.error("Error sending secure message:", err);
+          socket.emit("error", { 
+            message: err instanceof Error ? err.message : "Could not send secure message" 
+          });
         }
       });
 
@@ -398,17 +469,35 @@ export default (io: SocketNamespace) => {
         }
       });
 
-      socket.on("sendVoiceMessage", (data) => {
-        const { userID, conversationID, message, voiceUrl } = data;
-        const voiceMessage = {
-          userID,
-          conversationID,
-          message,
-          createdAt: new Date(),
-          status: "sent",
-          attachments: [{ type: "voice", url: voiceUrl }]
-        };
-        io.to(conversationID).emit("message", voiceMessage);
+      socket.on("sendVoiceMessage", async (data) => {
+        try {
+          const { conversationID, message = "", voiceUrl } = data;
+          
+          if (!conversationID || !voiceUrl) {
+            throw new Error('conversationID and voiceUrl are required');
+          }
+
+          const userID = socket.user?.id;
+          if (!userID) {
+            throw new Error('User not authenticated');
+          }
+
+          const voiceMessage = {
+            userID,
+            conversationID,
+            message,
+            createdAt: new Date(),
+            status: "sent",
+            attachments: [{ type: "voice", url: voiceUrl }]
+          };
+          const savedMessage = await MessageModel.create(voiceMessage);
+          io.to(conversationID).emit("message", savedMessage);
+        } catch (err) {
+          console.error("Error sending voice message:", err);
+          socket.emit("error", { 
+            message: err instanceof Error ? err.message : "Could not send voice message" 
+          });
+        }
       });
 
       socket.on("sendSticker", (data) => {
