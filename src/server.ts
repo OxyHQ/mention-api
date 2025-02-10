@@ -52,23 +52,130 @@ const verifySocketToken = (socket: any, next: (err?: Error) => void) => {
 // Initialize Socket.IO with CORS configuration
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:8081",
+    origin: ["http://localhost:8081", "http://localhost:8082", "http://localhost:19006"],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Content-Length', 'Accept', 'Accept-Encoding', 'Accept-Language'],
-    preflightContinue: false,
-    optionsSuccessStatus: 204
   },
-  allowEIO3: true, // Allow Engine.IO version 3 clients
-  transports: ['websocket', 'polling']
+  allowEIO3: true,
+  transports: ['websocket'],
+  path: '/socket.io',
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// Create and configure chat namespace
+// Error handling for main socket server
+io.engine.on("connection_error", (err) => {
+  console.log("Connection error:", err.code, err.message, err.context);
+});
+
+// Create namespaces
 const chatNamespace = io.of('/chat');
+const notificationsNamespace = io.of('/notifications');
+
+// Configure notification namespace
+notificationsNamespace.use((socket: any, next) => {
+  console.log("Authenticating notification socket connection...");
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    console.log("Missing auth token");
+    return next(new Error('Authentication token required'));
+  }
+  
+  try {
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || 'default_secret');
+    if (typeof decoded === 'string' || !decoded.id) {
+      console.log("Invalid token payload");
+      return next(new Error('Invalid token payload'));
+    }
+    socket.user = decoded;
+    console.log("Notification socket authenticated for user:", socket.user.id);
+    return next();
+  } catch (error) {
+    console.error("Notification socket auth error:", error);
+    return next(new Error('Invalid authentication token'));
+  }
+});
+
+// Handle notification socket connections
+notificationsNamespace.on('connection', (socket: AuthenticatedSocket) => {
+  console.log("Client connected to notifications namespace from ip:", socket.handshake.address);
+
+  if (!socket.user?.id) {
+    console.log("Unauthenticated client attempted to connect to notifications namespace");
+    socket.disconnect(true);
+    return;
+  }
+
+  const userRoom = `user:${socket.user.id}`;
+  const userId = socket.user.id; // Store the ID to ensure it's available in closures
+  socket.join(userRoom);
+  console.log(`Client ${socket.id} joined notification room:`, userRoom);
+  
+  // Emit connection confirmation
+  socket.emit('connected', { status: 'ok', userId: socket.user.id });
+
+  socket.on("joinRoom", (room: string) => {
+    // Add null check for socket.user
+    if (!socket.user?.id) return;
+    
+    if (room === `user:${socket.user.id}`) {
+      socket.join(room);
+      console.log(`User ${socket.user.id} joined their notification room`);
+    }
+  });
+
+  // Handle notification events
+  socket.on("markNotificationRead", async ({ notificationId }) => {
+    try {
+      // Check if socket is still authenticated
+      if (!socket.user?.id) return;
+
+      const notification = await Notification.findOneAndUpdate(
+        { _id: notificationId, recipientId: userId },
+        { read: true },
+        { new: true }
+      ).populate('actorId', 'username name avatar');
+
+      if (notification) {
+        notificationsNamespace.to(userRoom).emit("notificationUpdated", notification);
+      }
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+      socket.emit("error", { message: "Failed to mark notification as read" });
+    }
+  });
+
+  socket.on("markAllNotificationsRead", async () => {
+    try {
+      // Check if socket is still authenticated
+      if (!socket.user?.id) return;
+
+      await Notification.updateMany(
+        { recipientId: userId },
+        { read: true }
+      );
+      notificationsNamespace.to(userRoom).emit("allNotificationsRead");
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+      socket.emit("error", { message: "Failed to mark all notifications as read" });
+    }
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log(`Client ${socket.id} disconnected from notifications namespace. Reason:`, reason);
+    socket.leave(userRoom);
+  });
+
+  socket.on("error", (error) => {
+    console.error("Socket error for user", socket.user?.id, ":", error);
+  });
+});
 
 // Store namespaces in app for route access
 app.set('io', io);
 app.set('chatNamespace', chatNamespace);
+app.set('notificationsNamespace', notificationsNamespace);
 
 // Set up chat routes with socket namespace
 app.use('/api/chat', createChatRouter(chatNamespace));
@@ -76,14 +183,9 @@ app.use('/api/chat', createChatRouter(chatNamespace));
 // Configure main namespace
 io.use(verifySocketToken);
 
-// Socket.IO connection handling
+// Socket.IO connection handling for main namespace
 io.on("connection", (socket: AuthenticatedSocket) => {
   console.log("Client connected from ip:", socket.handshake.address);
-  
-  // Join user's personal notification room on connection
-  if (socket.user?.id) {
-    socket.join(`user:${socket.user.id}`);
-  }
   
   socket.on("disconnect", () => {
     console.log("Client disconnected");
@@ -100,43 +202,9 @@ io.on("connection", (socket: AuthenticatedSocket) => {
     socket.leave(room);
     console.log(`Client ${socket.id} left room:`, room);
   });
-
-  // Notification specific events
-  socket.on("markNotificationRead", async ({ notificationId }) => {
-    try {
-      if (!socket.user?.id) return;
-      
-      const notification = await Notification.findOneAndUpdate(
-        { _id: notificationId, recipientId: socket.user.id },
-        { read: true },
-        { new: true }
-      );
-
-      if (notification) {
-        socket.emit("notificationUpdated", notification);
-      }
-    } catch (error) {
-      console.error("Error marking notification as read:", error);
-    }
-  });
-
-  socket.on("markAllNotificationsRead", async () => {
-    try {
-      if (!socket.user?.id) return;
-      
-      await Notification.updateMany(
-        { recipientId: socket.user.id },
-        { read: true }
-      );
-
-      socket.emit("allNotificationsRead");
-    } catch (error) {
-      console.error("Error marking all notifications as read:", error);
-    }
-  });
 });
 
-export { io, chatNamespace };
+export { io, chatNamespace, notificationsNamespace }; // Export notificationsNamespace
 
 // Configure CORS with credentials first
 app.use(cors({

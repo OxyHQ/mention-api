@@ -34,12 +34,35 @@ router.get("/:id", (async (req: Request, res: Response) => {
   try {
     const readStream = await readFile(req.params.id);
     if (!readStream) {
-      return res.status(404).json({ message: "No file exists" });
+      return res.status(404).json({ message: "File not found" });
     }
+    
+    // Set up error handler for the read stream
+    readStream.on('error', (err) => {
+      console.error('Stream error:', err);
+      // Only send response if it hasn't been sent yet
+      if (!res.headersSent) {
+        res.status(500).json({ message: `Error streaming file: ${err.message}` });
+      }
+    });
+
+    // Pipe the file stream to response
     readStream.pipe(res);
   } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ message: `An error occurred while retrieving the file: ${err.message}` });
+    console.error('File read error:', err);
+    
+    // Handle specific MongoDB/GridFS errors
+    if (err.code === 'ENOENT' || err.message?.includes('FileNotFound')) {
+      return res.status(404).json({ message: "File not found" });
+    }
+    
+    // Handle other errors
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        message: "An error occurred while retrieving the file",
+        error: err.message 
+      });
+    }
   }
 }) as RequestHandler);
 
