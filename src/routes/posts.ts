@@ -3,8 +3,24 @@ import Post from "../models/Post";
 import User from "../models/User";
 import Bookmark from "../models/Bookmark";
 import Like from "../models/Like";
+import Notification from "../models/Notification";
 import { authMiddleware } from '../middleware/auth';
 import { io } from '../server';
+import mongoose from "mongoose";
+
+// Define interfaces for our models
+interface IPost extends mongoose.Document {
+  userID: mongoose.Types.ObjectId;
+  text: string;
+  created_at: Date;
+  location?: {
+    type: string;
+    coordinates: number[];
+  };
+  media?: any;
+  in_reply_to_status_id?: string;
+  _count?: PostCount;
+}
 
 // Define the PostCount type to match the schema
 interface PostCount {
@@ -41,11 +57,40 @@ router.post("/", async (req: Request, res: Response) => {
 
     await newPost.save();
 
-    // If this is a reply, increment the reply count of the parent post
+    // If this is a reply, create notification and increment reply count
     if (in_reply_to_status_id) {
+      const parentPost = await Post.findById(in_reply_to_status_id) as IPost;
+      if (parentPost && parentPost.userID.toString() !== userID) {
+        await new Notification({
+          recipientId: parentPost.userID,
+          actorId: userID,
+          type: 'reply',
+          entityId: newPost._id,
+          entityType: 'post'
+        }).save();
+      }
       await Post.findByIdAndUpdate(in_reply_to_status_id, {
         $inc: { '_count.replies': 1 }
       });
+    }
+
+    // Check for mentions and create notifications
+    const mentions = text.match(/@(\w+)/g);
+    if (mentions) {
+      const uniqueMentions = [...new Set(mentions.map((m: string) => m.substring(1)))];
+      const mentionedUsers = await User.find({ username: { $in: uniqueMentions } });
+      
+      await Promise.all(mentionedUsers.map(async user => {
+        if (user._id.toString() !== userID) {
+          await new Notification({
+            recipientId: user._id,
+            actorId: userID,
+            type: 'mention',
+            entityId: newPost._id,
+            entityType: 'post'
+          }).save();
+        }
+      }));
     }
 
     // Emit socket event for the new post
@@ -228,27 +273,49 @@ router.get("/bookmarks", async (req: Request, res: Response) => {
     const bookmarks = await Bookmark.find({ userId })
       .populate({
         path: "postId",
-        model: "Post"
+        model: "Post",
+        populate: {
+          path: "userID",
+          model: "User",
+          select: "username name avatar"
+        }
       })
-      .sort({ createdAt: -1 }); // Order by date bookmarked
+      .sort({ createdAt: -1 });
 
-    const bookmarkedPosts = bookmarks.map((bookmark) => {
+    const bookmarkedPosts = await Promise.all(bookmarks.map(async (bookmark) => {
       const post = bookmark.postId as any;
+      if (!post) return null;
+
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+        Like.countDocuments({ postId: post._id }),
+        Post.countDocuments({ quoted_status_id: post._id }),
+        Post.countDocuments({ repost_of: post._id }),
+        Bookmark.countDocuments({ postId: post._id }),
+        Post.countDocuments({ in_reply_to_status_id: post._id })
+      ]);
+
+      const isLiked = await Like.exists({ userId, postId: post._id });
+      const isBookmarked = true; // Since this is in bookmarks, it must be bookmarked
+
       return {
         id: post._id,
         ...post.toObject(),
+        isLiked: !!isLiked,
+        isBookmarked,
         _count: {
-          likes: 0,
-          quotes: 0,
-          reposts: 0,
-          bookmarks: 0,
-          replies: 0,
-        },
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
       };
-    });
+    }));
 
-    res.json({ posts: bookmarkedPosts });
+    const filteredPosts = bookmarkedPosts.filter(post => post !== null);
+    res.json({ posts: filteredPosts });
   } catch (error) {
+    console.error("Error retrieving bookmarked posts:", error);
     res.status(500).json({ message: "Error retrieving bookmarked posts", error });
   }
 });
@@ -259,7 +326,7 @@ router.post("/:id/like", async (req: Request, res: Response) => {
     const postId = req.params.id;
     const userId = req.body.userId;
 
-    const post = await Post.findById(postId);
+    const post = await Post.findById(postId) as IPost;
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
@@ -274,6 +341,17 @@ router.post("/:id/like", async (req: Request, res: Response) => {
       const newLike = new Like({ userId, postId });
       await newLike.save();
       
+      // Create notification for post like
+      if (post.userID.toString() !== userId) {
+        await new Notification({
+          recipientId: post.userID,
+          actorId: userId,
+          type: 'like',
+          entityId: postId,
+          entityType: 'post'
+        }).save();
+      }
+
       const likesCount = await Like.countDocuments({ postId });
       
       await Post.findByIdAndUpdate(postId, { 

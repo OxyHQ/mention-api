@@ -122,18 +122,46 @@ router.get("/list/:userID", (async (req: AuthenticatedRequest, res: Response) =>
 // Get data of multiple files by IDs
 router.get("/data/:ids", (async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const rawIds = req.params.ids.split(",");
+    if (!req.params.ids) {
+      return res.status(400).json({ message: "No file IDs provided" });
+    }
+
+    const rawIds = req.params.ids.split(",").filter(id => id.trim());
+    if (rawIds.length === 0) {
+      return res.status(400).json({ message: "No valid file IDs provided" });
+    }
+
     const ids = [];
+    const invalidIds = [];
+    
     for (let id of rawIds) {
-      if (!ObjectId.isValid(id)) {
-        return res.status(400).json({ message: `Invalid file ID: ${id}` });
+      if (ObjectId.isValid(id.trim())) {
+        ids.push(new ObjectId(id.trim()));
+      } else {
+        invalidIds.push(id);
       }
-      ids.push(new ObjectId(id));
+    }
+
+    if (invalidIds.length > 0) {
+      return res.status(400).json({ 
+        message: "Invalid file ID(s) provided", 
+        invalidIds 
+      });
     }
 
     const files = await findFiles({ _id: { $in: ids } });
     if (!files || files.length === 0) {
-      return res.status(404).json({ message: "No files exist" });
+      return res.status(404).json({ message: "No files found" });
+    }
+
+    // Check if we found all requested files
+    if (files.length !== ids.length) {
+      const foundIds = files.map(file => file._id.toString());
+      const missingIds = ids.map(id => id.toString()).filter(id => !foundIds.includes(id));
+      return res.status(404).json({ 
+        message: "Some files were not found",
+        missingIds
+      });
     }
 
     const fileData = files.map((file: GridFSFile) => ({
@@ -147,8 +175,11 @@ router.get("/data/:ids", (async (req: AuthenticatedRequest, res: Response) => {
 
     res.json(fileData);
   } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ message: `An error occurred while retrieving the files: ${err.message}` });
+    console.error('Error in /files/data/:ids:', err);
+    res.status(500).json({ 
+      message: "Error retrieving files",
+      error: err.message 
+    });
   }
 }) as RequestHandler);
 

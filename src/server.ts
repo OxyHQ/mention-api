@@ -1,13 +1,14 @@
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
-import { Server as SocketIOServer } from "socket.io";
+import { Server as SocketIOServer, Socket } from "socket.io";
 import cors from "cors";
 import jwt from 'jsonwebtoken';
 import postsRouter from "./routes/posts";
 import profilesRouter from "./routes/profiles";
 import usersRouter from "./routes/users";
 import authRouter from "./routes/auth";
+import notificationsRouter from "./routes/notifications";
 import dotenv from "dotenv";
 import fileRoutes from "./routes/files";
 import listsRoutes from "./routes/lists";
@@ -17,11 +18,20 @@ import User from "./models/User";
 import Post from "./models/Post";
 import searchRoutes from "./routes/search";
 import { rateLimiter, bruteForceProtection, csrfProtection, parseCookies, csrfErrorHandler } from "./middleware/security";
+import Notification from "./models/Notification";
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Custom socket interface to include user property
+interface AuthenticatedSocket extends Socket {
+  user?: {
+    id: string;
+    [key: string]: any;
+  };
+}
 
 // Socket token verification middleware
 const verifySocketToken = (socket: any, next: (err?: Error) => void) => {
@@ -67,8 +77,13 @@ app.use('/api/chat', createChatRouter(chatNamespace));
 io.use(verifySocketToken);
 
 // Socket.IO connection handling
-io.on("connection", (socket) => {
+io.on("connection", (socket: AuthenticatedSocket) => {
   console.log("Client connected from ip:", socket.handshake.address);
+  
+  // Join user's personal notification room on connection
+  if (socket.user?.id) {
+    socket.join(`user:${socket.user.id}`);
+  }
   
   socket.on("disconnect", () => {
     console.log("Client disconnected");
@@ -84,6 +99,40 @@ io.on("connection", (socket) => {
     const room = `post:${postId}`;
     socket.leave(room);
     console.log(`Client ${socket.id} left room:`, room);
+  });
+
+  // Notification specific events
+  socket.on("markNotificationRead", async ({ notificationId }) => {
+    try {
+      if (!socket.user?.id) return;
+      
+      const notification = await Notification.findOneAndUpdate(
+        { _id: notificationId, recipientId: socket.user.id },
+        { read: true },
+        { new: true }
+      );
+
+      if (notification) {
+        socket.emit("notificationUpdated", notification);
+      }
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
+  });
+
+  socket.on("markAllNotificationsRead", async () => {
+    try {
+      if (!socket.user?.id) return;
+      
+      await Notification.updateMany(
+        { recipientId: socket.user.id },
+        { read: true }
+      );
+
+      socket.emit("allNotificationsRead");
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+    }
   });
 });
 
@@ -196,6 +245,7 @@ app.use("/api/users", usersRouter);
 app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
 app.use("/api/auth", authRouter);
+app.use("/api/notifications", notificationsRouter);
 
 // Add CSRF error handler (should be after routes)
 app.use(csrfErrorHandler);
