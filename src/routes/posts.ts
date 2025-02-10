@@ -173,6 +173,46 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+// Get a single post by ID
+router.get("/:id", async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const post = await Post.findById(postId);
+    
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+      Like.countDocuments({ postId: post._id }),
+      Post.countDocuments({ quoted_status_id: post._id }),
+      Post.countDocuments({ repost_of: post._id }),
+      Bookmark.countDocuments({ postId: post._id }),
+      Post.countDocuments({ in_reply_to_status_id: post._id })
+    ]);
+
+    const postWithCounts = {
+      id: post._id,
+      ...post.toObject(),
+      _count: {
+        likes: likesCount,
+        quotes: quotesCount,
+        reposts: repostsCount,
+        bookmarks: bookmarksCount,
+        replies: repliesCount
+      }
+    };
+
+    res.json({ 
+      message: "Post retrieved successfully",
+      posts: [postWithCounts]  // Keeping consistent with other endpoints that return posts array
+    });
+  } catch (error) {
+    console.error("Error retrieving post:", error);
+    res.status(500).json({ message: "Error retrieving post", error });
+  }
+});
+
 // Get posts by hashtag
 router.get("/hashtag/:hashtag", async (req: Request, res: Response) => {
   try {
