@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User, { IUser } from "../models/User";
 import Profile from "../models/Profile";
+import Notification from "../models/Notification";
 
 const router = express.Router();
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || "refresh_secret";
@@ -141,6 +142,16 @@ router.post("/signup", async (req: Request, res: Response) => {
       created_at: new Date(),
       indexedAt: new Date()
     });
+
+    // Create welcome notification
+    await new Notification({
+      recipientId: savedUser._id,
+      actorId: savedUser._id, // Self-notification for welcome message
+      type: 'welcome', // Add 'welcome' to the type enum in Notification model
+      entityId: savedUser._id,
+      entityType: 'profile',
+      read: false
+    }).save();
 
     // Generate initial token
     const token = jwt.sign(
