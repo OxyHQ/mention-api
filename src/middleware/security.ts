@@ -1,7 +1,5 @@
 import rateLimit from "express-rate-limit";
 import slowDown from "express-slow-down";
-import csrf from "csurf";
-import cookieParser from "cookie-parser"; // Import cookie-parser
 import { Request, Response, NextFunction } from "express";
 
 // Rate limiting middleware (exclude file uploads)
@@ -20,24 +18,4 @@ const bruteForceProtection = slowDown({
   skip: (req: Request) => req.path.startsWith('/api/files/upload')
 });
 
-// Middleware to parse cookies
-const parseCookies = cookieParser();
-
-// CSRF protection middleware
-const csrfProtection = csrf({
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-  },
-});
-
-// Error handling middleware for CSRF token errors
-const csrfErrorHandler = (err: { code: string }, req: Request, res: Response, next: NextFunction) => {
-  if (err.code !== "EBADCSRFTOKEN") return next(err);
-
-  res.status(403);
-  res.send("Form tampered with");
-};
-
-export { rateLimiter, bruteForceProtection, csrfProtection, parseCookies, csrfErrorHandler };
+export { rateLimiter, bruteForceProtection };
