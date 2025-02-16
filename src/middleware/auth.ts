@@ -16,16 +16,26 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as { id: string };
+            const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || "default_secret") as { id: string };
             const user = await User.findById(decoded.id);
 
             if (!user) {
                 throw new AuthenticationError('User not found or deleted', 404);
             }
 
+            if (!user.refreshToken) {
+                throw new AuthenticationError('Session invalidated', 401);
+            }
+
             req.user = user;
             next();
         } catch (jwtError) {
+            if (jwtError instanceof jwt.TokenExpiredError) {
+                throw new AuthenticationError('Token has expired', 401);
+            }
+            if (jwtError instanceof jwt.JsonWebTokenError) {
+                throw new AuthenticationError('Invalid token', 401);
+            }
             throw new AuthenticationError('Token signature is invalid', 401);
         }
     } catch (error: unknown) {

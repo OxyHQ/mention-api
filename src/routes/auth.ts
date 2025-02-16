@@ -4,14 +4,16 @@ import jwt from "jsonwebtoken";
 import User, { IUser } from "../models/User";
 import Profile from "../models/Profile";
 import Notification from "../models/Notification";
+import { AuthenticationError } from '../utils/authErrors';
 
 const router = express.Router();
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || "refresh_secret";
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || "default_secret";
 
 const generateTokens = (userId: string, username: string) => {
   const accessToken = jwt.sign(
     { id: userId, username },
-    process.env.ACCESS_TOKEN_SECRET || "default_secret",
+    ACCESS_TOKEN_SECRET,
     { expiresIn: "1h" }
   );
   
@@ -225,25 +227,25 @@ router.post("/signin", async (req: Request, res: Response) => {
   }
 });
 
-// New refresh token endpoint
+// Enhanced refresh token endpoint
 router.post("/refresh", async (req: Request, res: Response) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) {
-      return res.status(400).json({ message: "Refresh token required" });
+      throw new AuthenticationError("Refresh token required", 400);
     }
 
     const decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET) as { id: string; username: string };
     const user = await User.findById(decoded.id).select('+refreshToken') as IUser;
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      throw new AuthenticationError("User not found", 404);
     }
 
     // Verify stored refresh token
     const isValidToken = await bcrypt.compare(refreshToken, user.refreshToken || '');
     if (!isValidToken) {
-      return res.status(401).json({ message: "Invalid refresh token" });
+      throw new AuthenticationError("Invalid refresh token", 401);
     }
 
     const tokens = generateTokens(user._id.toString(), user.username);
@@ -258,11 +260,17 @@ router.post("/refresh", async (req: Request, res: Response) => {
       refreshToken: tokens.refreshToken
     });
   } catch (error) {
-    return res.status(401).json({ message: "Invalid refresh token", error });
+    if (error instanceof AuthenticationError) {
+      return res.status(error.statusCode || 401).json({ message: error.message });
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+    return res.status(500).json({ message: "Token refresh error" });
   }
 });
 
-// Logout endpoint
+// Enhanced logout endpoint
 router.post("/logout", async (req: Request, res: Response) => {
   try {
     const { refreshToken } = req.body;
@@ -280,11 +288,11 @@ router.post("/logout", async (req: Request, res: Response) => {
 
     return res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
-    return res.status(401).json({ message: "Invalid refresh token", error });
+    return res.status(401).json({ message: "Invalid refresh token" });
   }
 });
 
-// Validate session API
+// Enhanced validate session endpoint
 router.get("/validate", async (req: Request, res: Response) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -293,16 +301,23 @@ router.get("/validate", async (req: Request, res: Response) => {
       return res.status(401).json({ message: "No token provided" });
     }
 
-    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || "default_secret") as { id: string };
+    const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as { id: string };
     const user = await User.findById(decoded.id);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    if (!user.refreshToken) {
+      return res.status(401).json({ message: "Session invalidated" });
+    }
+
     return res.status(200).json({ valid: true });
   } catch (error) {
-    return res.status(401).json({ message: "Invalid token", error });
+    if (error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({ message: "Token has expired" });
+    }
+    return res.status(401).json({ message: "Invalid token" });
   }
 });
 
