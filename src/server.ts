@@ -17,7 +17,7 @@ import createChatRouter from "./routes/chat";
 import User from "./models/User";
 import Post from "./models/Post";
 import searchRoutes from "./routes/search";
-import { rateLimiter, bruteForceProtection, csrfProtection, parseCookies, csrfErrorHandler } from "./middleware/security";
+import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import Notification from "./models/Notification";
 
 dotenv.config();
@@ -51,12 +51,9 @@ const verifySocketToken = (socket: any, next: (err?: Error) => void) => {
 // Initialize Socket.IO with CORS configuration
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:8081",
-    credentials: true,
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
   },
   allowEIO3: true,
   transports: ["websocket", "polling"],
@@ -140,15 +137,6 @@ io.on("connection", (socket: AuthenticatedSocket) => {
   });
 });
 
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:8081",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
-  })
-);
-
 // Logging for file upload requests
 app.use("/api/files/upload", (req, res, next) => {
   if (req.method === "POST") {
@@ -164,7 +152,6 @@ app.use("/api/files/upload", (req, res, next) => {
 });
 
 app.use("/api/files", fileRoutes);
-app.use(parseCookies);
 
 // Rate limiting and brute force protection
 app.use((req, res, next) => {
@@ -238,7 +225,6 @@ app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
 app.use("/api/auth", authRouter);
 app.use("/api/notifications", notificationsRouter);
-app.use(csrfErrorHandler);
 
 // Only call listen if this module is run directly
 const PORT = process.env.PORT || 3000;
