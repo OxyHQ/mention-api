@@ -292,32 +292,63 @@ router.post("/logout", async (req: Request, res: Response) => {
   }
 });
 
-// Enhanced validate session endpoint
+// Enhanced validate session endpoint with better error handling
 router.get("/validate", async (req: Request, res: Response) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     
     if (!token) {
-      return res.status(401).json({ message: "No token provided" });
+      console.warn('[Auth] No token provided for validation');
+      return res.status(401).json({ 
+        valid: false,
+        message: "No token provided" 
+      });
     }
 
-    const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as { id: string };
-    const user = await User.findById(decoded.id);
+    try {
+      const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as { id: string };
+      const user = await User.findById(decoded.id).select('+refreshToken');
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      if (!user) {
+        console.warn('[Auth] User not found for token validation:', decoded.id);
+        return res.status(404).json({ 
+          valid: false,  
+          message: "User not found" 
+        });
+      }
+
+      if (!user.refreshToken) {
+        console.warn('[Auth] No refresh token found for user:', decoded.id);
+        return res.status(401).json({ 
+          valid: false, 
+          message: "Session invalidated" 
+        });
+      }
+
+      return res.status(200).json({ valid: true });
+      
+    } catch (jwtError) {
+      console.error('[Auth] Token verification failed:', jwtError);
+      if (jwtError instanceof jwt.TokenExpiredError) {
+        return res.status(401).json({ 
+          valid: false, 
+          message: "Token has expired" 
+        });
+      }
+      if (jwtError instanceof jwt.JsonWebTokenError) {
+        return res.status(401).json({ 
+          valid: false, 
+          message: "Token signature is invalid" 
+        });
+      }
+      throw jwtError;
     }
-
-    if (!user.refreshToken) {
-      return res.status(401).json({ message: "Session invalidated" });
-    }
-
-    return res.status(200).json({ valid: true });
   } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
-      return res.status(401).json({ message: "Token has expired" });
-    }
-    return res.status(401).json({ message: "Invalid token" });
+    console.error('[Auth] Unexpected error during validation:', error);
+    return res.status(500).json({ 
+      valid: false, 
+      message: "Validation error" 
+    });
   }
 });
 
