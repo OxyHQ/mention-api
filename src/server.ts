@@ -167,10 +167,10 @@ const configureNamespaceErrorHandling = (namespace: Namespace) => {
   });
 };
 
-// Create and configure namespaces
-const chatNamespace = io.of("/chat");
-const notificationsNamespace = io.of("/notifications");
-const postsNamespace = io.of("/posts"); // Add posts namespace
+// Create and configure namespaces with proper paths
+const chatNamespace = io.of("/api/chat");
+const notificationsNamespace = io.of("/api/notifications");
+const postsNamespace = io.of("/api/posts"); // Update posts namespace path
 
 // Apply verification middleware to all namespaces
 [chatNamespace, notificationsNamespace, postsNamespace].forEach(namespace => {
@@ -302,43 +302,28 @@ notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
   });
 });
 
-// Configure posts namespace
-postsNamespace.on("connection", (socket: AuthenticatedSocket) => {
-  console.log("Client connected to posts namespace from:", socket.handshake.address);
-
-  if (!socket.user?.id) {
-    console.log("Unauthenticated client attempted to connect to posts namespace");
-    socket.disconnect(true);
-    return;
-  }
-
+// Configure postsNamespace events
+postsNamespace.on('connection', (socket: AuthenticatedSocket) => {
+  console.log("Client connected to posts namespace from ip:", socket.handshake.address);
+  
   socket.on("error", (error: Error) => {
     console.error("Posts socket error:", error.message);
   });
 
-  socket.on("joinPost", async (postId: string) => {
-    try {
-      const room = `post:${postId}`;
-      await socket.join(room);
-      console.log(`Client ${socket.id} joined post room:`, room);
-    } catch (error) {
-      console.error(`Error joining post room:`, error);
-      socket.emit("error", { message: "Failed to join post room" });
-    }
+  socket.on('joinPost', (postId: string) => {
+    const room = `post:${postId}`;
+    socket.join(room);
+    console.log(`Client ${socket.id} joined post room:`, room);
+  });
+  
+  socket.on('leavePost', (postId: string) => {
+    const room = `post:${postId}`;
+    socket.leave(room);
+    console.log(`Client ${socket.id} left post room:`, room);
   });
 
-  socket.on("leavePost", async (postId: string) => {
-    try {
-      const room = `post:${postId}`;
-      await socket.leave(room);
-      console.log(`Client ${socket.id} left post room:`, room);
-    } catch (error) {
-      console.error(`Error leaving post room:`, error);
-    }
-  });
-
-  socket.on("disconnect", (reason: DisconnectReason, description?: any) => {
-    console.log(`Client ${socket.id} disconnected from posts namespace:`, reason, description || '');
+  socket.on("disconnect", (reason: DisconnectReason) => {
+    console.log(`Client ${socket.id} disconnected from posts namespace:`, reason);
   });
 });
 
