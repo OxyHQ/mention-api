@@ -1,7 +1,11 @@
 import express, { Request, Response } from "express";
 import Post from "../models/Post";
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
+
+// Apply auth middleware to all routes
+router.use(authMiddleware);
 
 // Get all hashtags
 router.get("/", async (req: Request, res: Response) => {

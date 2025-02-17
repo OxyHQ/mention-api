@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
-import { Server as SocketIOServer, Socket } from "socket.io";
+import { Server as SocketIOServer, Socket, Namespace } from "socket.io";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import postsRouter from "./routes/posts";
@@ -25,6 +25,19 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+// Apply CORS middleware with proper configuration
+app.use(cors({
+  origin: true, // Accept requests from any origin
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
+  credentials: true,
+  optionsSuccessStatus: 204
+}));
+
+// Basic middleware setup
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Custom socket interface to include user property
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -33,50 +46,229 @@ interface AuthenticatedSocket extends Socket {
   };
 }
 
-// Socket token verification middleware
-const verifySocketToken = (socket: any, next: (err?: Error) => void) => {
-  const token = socket.handshake.auth.token;
-  if (!token) {
-    return next(new Error("Authentication token required"));
+// Using socket.io's internal types for disconnect reasons
+type DisconnectReason =
+  | "server disconnect"
+  | "client disconnect"
+  | "transport close"
+  | "transport error"
+  | "ping timeout"
+  | "parse error"
+  | "forced close"
+  | "forced server close"
+  | "server shutting down"
+  | "client namespace disconnect"
+  | "server namespace disconnect"
+  | "unknown transport";
+
+// Socket error type
+interface SocketError extends Error {
+  description?: string;
+  context?: any;
+}
+
+// Socket configuration
+const SOCKET_CONFIG = {
+  PING_TIMEOUT: 60000,
+  PING_INTERVAL: 25000,
+  UPGRADE_TIMEOUT: 30000,
+  CONNECT_TIMEOUT: 45000,
+  MAX_BUFFER_SIZE: 1e8,
+  COMPRESSION_THRESHOLD: 1024,
+  CHUNK_SIZE: 10 * 1024,
+  WINDOW_BITS: 14,
+  COMPRESSION_LEVEL: 6
+} as const;
+
+// Socket.IO Server configuration
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: true, // Accept requests from any origin
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
+    credentials: true,
+    optionsSuccessStatus: 204
+  },
+  transports: ["websocket", "polling"],
+  path: "/socket.io",
+  pingTimeout: SOCKET_CONFIG.PING_TIMEOUT,
+  pingInterval: SOCKET_CONFIG.PING_INTERVAL,
+  upgradeTimeout: SOCKET_CONFIG.UPGRADE_TIMEOUT,
+  maxHttpBufferSize: SOCKET_CONFIG.MAX_BUFFER_SIZE,
+  connectTimeout: SOCKET_CONFIG.CONNECT_TIMEOUT,
+  perMessageDeflate: {
+    threshold: SOCKET_CONFIG.COMPRESSION_THRESHOLD,
+    zlibInflateOptions: {
+      chunkSize: SOCKET_CONFIG.CHUNK_SIZE,
+      windowBits: SOCKET_CONFIG.WINDOW_BITS,
+    },
+    zlibDeflateOptions: {
+      chunkSize: SOCKET_CONFIG.CHUNK_SIZE,
+      windowBits: SOCKET_CONFIG.WINDOW_BITS,
+      level: SOCKET_CONFIG.COMPRESSION_LEVEL,
+    },
   }
+});
+
+// Enhanced socket token verification middleware with better error messages
+const verifySocketToken = async (socket: Socket, next: (err?: Error) => void) => {
   try {
-    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || "default_secret");
-    socket.user = decoded;
-    return next();
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      console.error('No auth token provided for socket connection');
+      return next(new Error("Authentication token required"));
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as { id: string };
+      if (!decoded) {
+        console.error('Token verification failed');
+        return next(new Error("Invalid authentication token"));
+      }
+
+      // Add user info to socket
+      (socket as AuthenticatedSocket).user = decoded as { id: string };
+      console.log(`Socket authenticated for user: ${decoded.id}`);
+      return next();
+    } catch (error) {
+      console.error('JWT verification error:', error);
+      if (error instanceof jwt.TokenExpiredError) {
+        return next(error);
+      }
+      if (error instanceof jwt.JsonWebTokenError) {
+        return next(error);
+      }
+      if (error instanceof Error) {
+        return next(error);
+      }
+      return next(new Error("Authentication failed"));
+    }
   } catch (error) {
-    return next(new Error("Invalid authentication token"));
+    console.error('Socket authentication error:', error);
+    if (error instanceof Error) {
+      return next(error);
+    }
+    return next(new Error("Authentication failed"));
   }
 };
 
-// Initialize Socket.IO with CORS configuration
-const io = new SocketIOServer(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
-  },
-  allowEIO3: true,
-  transports: ["websocket", "polling"],
-  path: "/socket.io",
-});
+// Configure error handling for namespaces
+const configureNamespaceErrorHandling = (namespace: Namespace) => {
+  namespace.on("connection_error", (error: Error) => {
+    console.error("Connection error:", error.message);
+  });
 
-// Create namespaces
+  namespace.on("connect_error", (error: Error) => {
+    console.error("Connect error:", error.message);
+  });
+
+  namespace.on("connect_timeout", () => {
+    console.error("Connection timeout");
+  });
+};
+
+// Create and configure namespaces
 const chatNamespace = io.of("/chat");
 const notificationsNamespace = io.of("/notifications");
+const postsNamespace = io.of("/posts"); // Add posts namespace
+
+// Apply verification middleware to all namespaces
+[chatNamespace, notificationsNamespace, postsNamespace].forEach(namespace => {
+  namespace.use(verifySocketToken);
+  configureNamespaceErrorHandling(namespace);
+});
+
+// Configure main namespace with enhanced error handling
+io.use(verifySocketToken);
+io.on("connection", (socket: AuthenticatedSocket) => {
+  console.log("Client connected from ip:", socket.handshake.address);
+  
+  // Enhanced error handling
+  socket.on("error", (error: Error) => {
+    console.error("Socket error:", error.message);
+    // Attempt to reconnect on error
+    if (socket.connected) {
+      socket.disconnect();
+    }
+  });
+  
+  socket.on("disconnect", (reason: DisconnectReason, description?: any) => {
+    console.log("Client disconnected:", reason, description || '');
+    // Handle specific disconnect reasons
+    if (reason === "server disconnect") {
+      // Reconnect if server initiated the disconnect
+      socket.disconnect();
+    }
+    if (reason === "transport close" || reason === "transport error") {
+      console.log("Transport issue detected, attempting reconnection...");
+    }
+  });
+
+  socket.on("connect_error", (error: Error) => {
+    console.error("Connection error:", error.message);
+  });
+
+  socket.on("reconnect_attempt", (attemptNumber: number) => {
+    console.log(`Reconnection attempt ${attemptNumber}`);
+  });
+
+  socket.on("reconnect_error", (error: Error) => {
+    console.error("Reconnection error:", error.message);
+  });
+
+  socket.on("reconnect_failed", () => {
+    console.error("Failed to reconnect");
+  });
+  
+  socket.on("joinPost", (postId: string) => {
+    const room = `post:${postId}`;
+    socket.join(room);
+    console.log(`Client ${socket.id} joined room:`, room);
+  });
+  
+  socket.on("leavePost", (postId: string) => {
+    const room = `post:${postId}`;
+    socket.leave(room);
+    console.log(`Client ${socket.id} left room:`, room);
+  });
+});
+
+// Enhanced error handling for namespaces
+[chatNamespace, notificationsNamespace, postsNamespace].forEach((namespace: Namespace) => {
+  namespace.on("connection_error", (error: Error) => {
+    console.error(`Namespace ${namespace.name} connection error:`, error.message);
+  });
+
+  namespace.on("connect_error", (error: SocketError) => {
+    console.error(`${namespace.name}: Connect error:`, error.message);
+    // Log detailed error info
+    if (error.description) console.error('Error description:', error.description);
+    if (error.context) console.error('Error context:', error.context);
+  });
+
+  namespace.on("connect_timeout", () => {
+    console.error(`${namespace.name}: Connect timeout`);
+  });
+});
 
 // Configure notifications namespace
-notificationsNamespace.use(verifySocketToken);
 notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
   console.log("Client connected to notifications namespace from ip:", socket.handshake.address);
+  
   if (!socket.user?.id) {
     console.log("Unauthenticated client attempted to connect to notifications namespace");
     socket.disconnect(true);
     return;
   }
+
   const userRoom = `user:${socket.user.id}`;
   const userId = socket.user.id;
   socket.join(userRoom);
   console.log(`Client ${socket.id} joined notification room:`, userRoom);
+
+  socket.on("error", (error: Error) => {
+    console.error("Notifications socket error:", error.message);
+  });
 
   socket.on("markNotificationRead", async ({ notificationId }) => {
     try {
@@ -104,9 +296,49 @@ notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log(`Client ${socket.id} disconnected from notifications namespace`);
+  socket.on("disconnect", (reason: DisconnectReason, description?: any) => {
+    console.log(`Client ${socket.id} disconnected from notifications namespace:`, reason, description || '');
     socket.leave(userRoom);
+  });
+});
+
+// Configure posts namespace
+postsNamespace.on("connection", (socket: AuthenticatedSocket) => {
+  console.log("Client connected to posts namespace from:", socket.handshake.address);
+
+  if (!socket.user?.id) {
+    console.log("Unauthenticated client attempted to connect to posts namespace");
+    socket.disconnect(true);
+    return;
+  }
+
+  socket.on("error", (error: Error) => {
+    console.error("Posts socket error:", error.message);
+  });
+
+  socket.on("joinPost", async (postId: string) => {
+    try {
+      const room = `post:${postId}`;
+      await socket.join(room);
+      console.log(`Client ${socket.id} joined post room:`, room);
+    } catch (error) {
+      console.error(`Error joining post room:`, error);
+      socket.emit("error", { message: "Failed to join post room" });
+    }
+  });
+
+  socket.on("leavePost", async (postId: string) => {
+    try {
+      const room = `post:${postId}`;
+      await socket.leave(room);
+      console.log(`Client ${socket.id} left post room:`, room);
+    } catch (error) {
+      console.error(`Error leaving post room:`, error);
+    }
+  });
+
+  socket.on("disconnect", (reason: DisconnectReason, description?: any) => {
+    console.log(`Client ${socket.id} disconnected from posts namespace:`, reason, description || '');
   });
 });
 
@@ -114,28 +346,10 @@ notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
 app.set("io", io);
 app.set("chatNamespace", chatNamespace);
 app.set("notificationsNamespace", notificationsNamespace);
+app.set("postsNamespace", postsNamespace);
 
 // Set up chat routes with socket namespace
 app.use("/api/chat", createChatRouter(chatNamespace));
-
-// Configure main namespace
-io.use(verifySocketToken);
-io.on("connection", (socket: AuthenticatedSocket) => {
-  console.log("Client connected from ip:", socket.handshake.address);
-  socket.on("disconnect", () => {
-    console.log("Client disconnected");
-  });
-  socket.on("joinPost", (postId: string) => {
-    const room = `post:${postId}`;
-    socket.join(room);
-    console.log(`Client ${socket.id} joined room:`, room);
-  });
-  socket.on("leavePost", (postId: string) => {
-    const room = `post:${postId}`;
-    socket.leave(room);
-    console.log(`Client ${socket.id} left room:`, room);
-  });
-});
 
 // Logging for file upload requests
 app.use("/api/files/upload", (req, res, next) => {

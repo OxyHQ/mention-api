@@ -5,21 +5,25 @@ import User, { IUser } from "../models/User";
 import Profile from "../models/Profile";
 import Notification from "../models/Notification";
 import { AuthenticationError } from '../utils/authErrors';
+import dotenv from 'dotenv';
+
+// Ensure environment variables are loaded
+dotenv.config();
 
 const router = express.Router();
-const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || "refresh_secret";
-const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || "default_secret";
 
+// These values should be accessed directly from process.env where needed
+// and not stored in variables to ensure they're always up to date
 const generateTokens = (userId: string, username: string) => {
   const accessToken = jwt.sign(
     { id: userId, username },
-    ACCESS_TOKEN_SECRET,
+    process.env.ACCESS_TOKEN_SECRET!,
     { expiresIn: "1h" }
   );
   
   const refreshToken = jwt.sign(
     { id: userId, username },
-    REFRESH_TOKEN_SECRET,
+    process.env.REFRESH_TOKEN_SECRET!,
     { expiresIn: "7d" }
   );
   
@@ -235,7 +239,7 @@ router.post("/refresh", async (req: Request, res: Response) => {
       throw new AuthenticationError("Refresh token required", 400);
     }
 
-    const decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET) as { id: string; username: string };
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET!) as { id: string; username: string };
     const user = await User.findById(decoded.id).select('+refreshToken') as IUser;
 
     if (!user) {
@@ -278,7 +282,7 @@ router.post("/logout", async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Refresh token required" });
     }
 
-    const decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET) as { id: string };
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET!) as { id: string };
     const user = await User.findById(decoded.id);
 
     if (user) {
@@ -306,7 +310,7 @@ router.get("/validate", async (req: Request, res: Response) => {
     }
 
     try {
-      const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as { id: string };
+      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as { id: string };
       const user = await User.findById(decoded.id).select('+refreshToken');
 
       if (!user) {

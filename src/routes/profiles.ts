@@ -8,6 +8,9 @@ import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
+// Apply auth middleware to all routes
+router.use(authMiddleware);
+
 // Update the profile schema to include location and website
 const profileSchema = z.object({
   userID: z.string(),
@@ -202,10 +205,6 @@ const updateProfile: RequestHandler = async (req: AuthenticatedRequest, res) => 
 
 router.post("/", createProfile);
 router.get("/", getProfiles);
-
-// Apply auth middleware to all routes
-router.use(authMiddleware);
-
 router.get("/:id/followers", getFollowers);
 router.get("/:id/following", getFollowing);
 router.get("/:id", getProfileById);
