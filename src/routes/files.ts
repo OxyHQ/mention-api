@@ -32,14 +32,22 @@ router.get("/:id", (async (req: Request, res: Response) => {
   }
 
   try {
+    console.log(`[Files] Public access request for file: ${req.params.id}`);
     const readStream = await readFile(req.params.id);
     if (!readStream) {
+      console.warn(`[Files] File not found: ${req.params.id}`);
       return res.status(404).json({ message: "File not found" });
     }
     
+    // Set proper cache headers for public files
+    res.set({
+      'Cache-Control': 'public, max-age=31536000',
+      'Expires': new Date(Date.now() + 31536000000).toUTCString()
+    });
+    
     // Set up error handler for the read stream
     readStream.on('error', (err) => {
-      console.error('Stream error:', err);
+      console.error(`[Files] Stream error for file ${req.params.id}:`, err);
       // Only send response if it hasn't been sent yet
       if (!res.headersSent) {
         res.status(500).json({ message: `Error streaming file: ${err.message}` });
@@ -49,7 +57,7 @@ router.get("/:id", (async (req: Request, res: Response) => {
     // Pipe the file stream to response
     readStream.pipe(res);
   } catch (err: any) {
-    console.error('File read error:', err);
+    console.error(`[Files] Error reading file ${req.params.id}:`, err);
     
     // Handle specific MongoDB/GridFS errors
     if (err.code === 'ENOENT' || err.message?.includes('FileNotFound')) {
@@ -63,6 +71,37 @@ router.get("/:id", (async (req: Request, res: Response) => {
         error: err.message 
       });
     }
+  }
+}) as RequestHandler);
+
+// Public route - Get metadata for a file (no auth required)
+router.get("/meta/:id", (async (req: Request, res: Response) => {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ message: "Invalid file ID" });
+  }
+
+  try {
+    console.log(`[Files] Metadata request for file: ${req.params.id}`);
+    const files = await findFiles({ _id: new ObjectId(req.params.id) });
+    if (!files || files.length === 0) {
+      console.warn(`[Files] File metadata not found: ${req.params.id}`);
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    const file = files[0];
+    res.json({
+      id: file._id,
+      filename: file.metadata?.originalname || file.filename,
+      contentType: file.contentType,
+      size: file.length,
+      uploadDate: file.uploadDate
+    });
+  } catch (err: any) {
+    console.error(`[Files] Error getting file metadata ${req.params.id}:`, err);
+    res.status(500).json({ 
+      message: "Error retrieving file metadata",
+      error: err.message 
+    });
   }
 }) as RequestHandler);
 
