@@ -141,9 +141,6 @@ router.post("/signup", async (req: Request, res: Response) => {
       labels: [],
       description: "",
       banner: "",
-      followersCount: 0,
-      followsCount: 0,
-      postsCount: 0,
       pinnedPosts: { id: "" },
       created_at: new Date(),
       indexedAt: new Date()
