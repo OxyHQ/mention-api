@@ -1,9 +1,9 @@
 import express, { RequestHandler, Request } from "express";
 import Profile from "../models/Profile";
 import Followers from "../models/Followers";
-import axios from "axios";
-import { z } from "zod"; // Import zod for schema validation
-import User from "../models/User"; // <-- Added User model import
+import mongoose from "mongoose";
+import { z } from "zod";
+import User from "../models/User";
 import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
@@ -13,37 +13,23 @@ router.use(authMiddleware);
 
 // Update the profile schema to include location and website
 const profileSchema = z.object({
-  userID: z.string(),
+  userID: z.string(),  // We'll convert this to ObjectId in the handler
   name: z.object({
     first: z.string().optional(),
     last: z.string().optional(),
   }),
-  avatar: z.string(),
+  avatar: z.string().optional(),
   associated: z.object({
-    lists: z.number(),
-    feedgens: z.number(),
-    starterPacks: z.number(),
-    labeler: z.boolean(),
-  }),
-  labels: z.array(z.string()),
-  created_at: z.date(),
-  description: z.string(),
-  indexedAt: z.date(),
-  banner: z.string(),
-  // New optional fields
+    lists: z.number().optional(),
+    feedgens: z.number().optional(),
+    starterPacks: z.number().optional(),
+    labeler: z.boolean().optional(),
+  }).optional(),
+  labels: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  banner: z.string().optional(),
   location: z.string().optional(),
   website: z.string().optional(),
-  followersCount: z.number(),
-  followsCount: z.number(),
-  postsCount: z.number(),
-  pinnedPosts: z.object({
-    id: z.string(),
-  }),
-  _count: z.object({
-    followers: z.number(),
-    following: z.number(),
-    posts: z.number(),
-  }),
 });
 
 // Define the profile update schema with only editable fields
@@ -62,10 +48,28 @@ const profileUpdateSchema = z.object({
 // Create a new profile
 const createProfile: RequestHandler = async (req, res) => {
   try {
-    const profileData = profileSchema.parse(req.body); // Validate request body
-    const newProfile = new Profile(profileData);
+    const profileData = profileSchema.parse(req.body);
+    
+    if (!mongoose.Types.ObjectId.isValid(profileData.userID)) {
+      return res.status(400).json({ message: "Invalid user ID format" });
+    }
+
+    const userObjectId = new mongoose.Types.ObjectId(profileData.userID);
+    
+    // Check if profile already exists
+    const existingProfile = await Profile.findOne({ userID: userObjectId });
+    if (existingProfile) {
+      return res.status(409).json({ message: "Profile already exists for this user" });
+    }
+
+    const newProfile = new Profile({
+      ...profileData,
+      userID: userObjectId,
+      created_at: new Date()
+    });
+
     await newProfile.save();
-    res.status(201).json({ message: "Profile created successfully" });
+    res.status(201).json({ message: "Profile created successfully", profile: newProfile });
   } catch (error) {
     res.status(500).json({ message: "Error creating profile", error });
   }
@@ -98,18 +102,40 @@ const getProfiles: RequestHandler = async (req, res) => {
 const getProfileById: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const profile = await Profile.findOne({ userID: id });
-    if (!profile) {
-      res.status(404).json({ message: "Profile not found" });
-      return;
+    
+    // Strict ID validation
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ 
+        message: "Invalid user ID format",
+        details: "The provided ID is not a valid MongoDB ObjectId"
+      });
     }
 
-    const user = await User.findById(profile.userID).select('username');
-    const followersCount = await Followers.countDocuments({ userID: id });
-    const followingCount = await Followers.countDocuments({ contentID: id });
+    const userObjectId = new mongoose.Types.ObjectId(id);
+    const profile = await Profile.findOne({ userID: userObjectId });
+    
+    if (!profile) {
+      return res.status(404).json({ 
+        message: "Profile not found",
+        details: "No profile exists for the provided user ID" 
+      });
+    }
+
+    const user = await User.findById(userObjectId).select('username');
+    if (!user) {
+      return res.status(404).json({ 
+        message: "User not found",
+        details: "The associated user does not exist" 
+      });
+    }
+
+    const followersCount = await Followers.countDocuments({ userID: userObjectId });
+    const followingCount = await Followers.countDocuments({ contentID: userObjectId });
+    
     const combinedData = {
+      id: profile.userID.toString(), // Ensure ID is stringified
       ...profile.toObject(),
-      username: user?.username || "",
+      username: user.username,
       joinDate: profile.created_at ? profile.created_at.toISOString() : "",
       _count: {
         followers: followersCount,
@@ -121,7 +147,11 @@ const getProfileById: RequestHandler = async (req, res) => {
 
     res.json(combinedData);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching profile", error });
+    console.error('Profile fetch error:', error);
+    res.status(500).json({ 
+      message: "Error fetching profile",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
