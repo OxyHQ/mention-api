@@ -1,11 +1,11 @@
-import express, { Request, Response } from "express";
+import express, { Request as ExpressRequest, Response } from "express";
+import { Socket, Namespace } from "socket.io";
 import Post from "../models/Post";
 import User from "../models/User";
 import Bookmark from "../models/Bookmark";
 import Like from "../models/Like";
 import Notification from "../models/Notification";
 import { authMiddleware } from '../middleware/auth';
-import { io } from '../server';
 import mongoose from "mongoose";
 
 // Define interfaces for our models
@@ -29,6 +29,21 @@ interface PostCount {
   reposts: number;
   bookmarks: number;
   replies: number;
+}
+
+// Add interface to include user property
+interface Request extends ExpressRequest {
+  user?: {
+    _id: mongoose.Types.ObjectId;
+  };
+}
+
+// Custom socket interface to include user property
+interface AuthenticatedSocket extends Socket {
+  user?: {
+    id: string;
+    [key: string]: any;
+  };
 }
 
 const router = express.Router();
@@ -56,6 +71,9 @@ router.post("/", async (req: Request, res: Response) => {
     });
 
     await newPost.save();
+
+    // Get the posts namespace
+    const postsNamespace = req.app.get('postsNamespace');
 
     // If this is a reply, create notification and increment reply count
     if (in_reply_to_status_id) {
@@ -93,8 +111,8 @@ router.post("/", async (req: Request, res: Response) => {
       }));
     }
 
-    // Emit socket event for the new post
-    io.emit('newPost', {
+    // Emit using the posts namespace
+    postsNamespace.emit('newPost', {
       id: newPost._id,
       ...newPost.toObject(),
       _count: {
@@ -129,6 +147,8 @@ router.post("/", async (req: Request, res: Response) => {
 router.get("/", async (req: Request, res: Response) => {
   try {
     const { userID, text, location } = req.query;
+    const currentUserId = req.user?._id; // Get the authenticated user's ID
+    const postsNamespace = req.app.get('postsNamespace');
 
     const filter: any = {};
     if (userID) filter.userID = userID;
@@ -148,21 +168,33 @@ router.get("/", async (req: Request, res: Response) => {
 
     const posts = await Post.find(filter).sort({ created_at: -1 });
 
-    const postsWithCounts = posts.map(post => {
-      const counts: PostCount = {
-        likes: 0,
-        quotes: 0,
-        reposts: 0,
-        bookmarks: 0,
-        replies: (post._count as any)?.replies || 0
-      };
+    const postsWithCounts = await Promise.all(posts.map(async post => {
+      // Make sure the socket joins the room for this post
+      const postRoomId = `post:${post._id}`;
+      postsNamespace.socketsJoin(postRoomId);
+
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked] = await Promise.all([
+        Like.countDocuments({ postId: post._id }),
+        Post.countDocuments({ quoted_status_id: post._id }),
+        Post.countDocuments({ repost_of: post._id }),
+        Bookmark.countDocuments({ postId: post._id }),
+        Post.countDocuments({ in_reply_to_status_id: post._id }),
+        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false
+      ]);
 
       return {
         id: post._id,
         ...post.toObject(),
-        _count: counts
+        isLiked: !!isLiked,
+        _count: {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
       };
-    });
+    }));
 
     res.json({
       message: "Posts retrieved successfully",
@@ -217,31 +249,72 @@ router.get("/:id", async (req: Request, res: Response) => {
 router.get("/hashtag/:hashtag", async (req: Request, res: Response) => {
   try {
     const { hashtag } = req.params;
+    const currentUserId = req.user?._id;
+    const postsNamespace = req.app.get('postsNamespace');
+    
     const posts = await Post.find({ text: { $regex: `#${hashtag}`, $options: "i" } });
 
-    const feed = posts.map((post) => ({
-      id: post._id,
-      ...post.toObject(),
-      _count: {
-        likes: 0,
-        quotes: 0,
-        reposts: 0,
-        bookmarks: 0,
-        replies: 0,
-      },
+    const feed = await Promise.all(posts.map(async post => {
+      // Join socket room for this post
+      const postRoomId = `post:${post._id}`;
+      postsNamespace.socketsJoin(postRoomId);
+
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked] = await Promise.all([
+        Like.countDocuments({ postId: post._id }),
+        Post.countDocuments({ quoted_status_id: post._id }),
+        Post.countDocuments({ repost_of: post._id }),
+        Bookmark.countDocuments({ postId: post._id }),
+        Post.countDocuments({ in_reply_to_status_id: post._id }),
+        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false
+      ]);
+
+      return {
+        id: post._id,
+        ...post.toObject(),
+        isLiked: !!isLiked,
+        _count: {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
+      };
     }));
 
-    // Fetch related posts
-    const relatedPosts = await Post.find({ text: { $regex: `#${hashtag}`, $options: "i" } }).limit(5);
+    // Fetch related posts with the same treatment
+    const relatedPosts = await Promise.all((await Post.find({ text: { $regex: `#${hashtag}`, $options: "i" } }).limit(5)).map(async post => {
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked] = await Promise.all([
+        Like.countDocuments({ postId: post._id }),
+        Post.countDocuments({ quoted_status_id: post._id }),
+        Post.countDocuments({ repost_of: post._id }),
+        Bookmark.countDocuments({ postId: post._id }),
+        Post.countDocuments({ in_reply_to_status_id: post._id }),
+        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false
+      ]);
 
-    // Calculate stats
+      return {
+        id: post._id,
+        ...post.toObject(),
+        isLiked: !!isLiked,
+        _count: {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
+      };
+    }));
+
+    // Calculate aggregated stats from actual counts
     const _count = {
       totalPosts: posts.length,
-      likes: posts.reduce((acc, post) => acc + (typeof post.likes === 'number' ? post.likes : 0), 0),
-      quotes: posts.reduce((acc, post) => acc + (typeof post.quotes === 'number' ? post.quotes : 0), 0),
-      reposts: posts.reduce((acc, post) => acc + (typeof post.reposts === 'number' ? post.reposts : 0), 0),
-      bookmarks: posts.reduce((acc, post) => acc + (typeof post.bookmarks === 'number' ? post.bookmarks : 0), 0),
-      replies: posts.reduce((acc, post) => acc + (typeof post.replies === 'number' ? post.replies : 0), 0),
+      likes: feed.reduce((acc, post) => acc + (post._count?.likes || 0), 0),
+      quotes: feed.reduce((acc, post) => acc + (post._count?.quotes || 0), 0),
+      reposts: feed.reduce((acc, post) => acc + (post._count?.reposts || 0), 0),
+      bookmarks: feed.reduce((acc, post) => acc + (post._count?.bookmarks || 0), 0),
+      replies: feed.reduce((acc, post) => acc + (post._count?.replies || 0), 0),
     };
 
     res.json({
@@ -295,8 +368,8 @@ router.delete("/:id/bookmark", async (req: Request, res: Response) => {
     }
 
     res.status(200).json({ message: "Bookmark removed successfully" });
-  } catch (error) {
-    res.status(500).json({ message: "Error removing bookmark", error });
+  } catch (err) {
+    res.status(500).json({ message: "Error removing bookmark", error: err });
   }
 });
 
@@ -365,6 +438,7 @@ router.post("/:id/like", async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const userId = req.body.userId;
+    const postsNamespace = req.app.get('postsNamespace');
 
     const post = await Post.findById(postId) as IPost;
     if (!post) {
@@ -392,21 +466,38 @@ router.post("/:id/like", async (req: Request, res: Response) => {
         }).save();
       }
 
-      const likesCount = await Like.countDocuments({ postId });
-      
-      await Post.findByIdAndUpdate(postId, { 
-        $set: { '_count.likes': likesCount }
-      });
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+        Like.countDocuments({ postId }),
+        Post.countDocuments({ quoted_status_id: postId }),
+        Post.countDocuments({ repost_of: postId }),
+        Bookmark.countDocuments({ postId }),
+        Post.countDocuments({ in_reply_to_status_id: postId })
+      ]);
 
-      // Emit socket event
-      io.to(`post:${postId}`).emit('postLiked', {
+      const updatedPost = await Post.findByIdAndUpdate(postId, { 
+        $set: { 
+          '_count': {
+            likes: likesCount,
+            quotes: quotesCount,
+            reposts: repostsCount,
+            bookmarks: bookmarksCount,
+            replies: repliesCount
+          }
+        }
+      }, { new: true });
+
+      // Emit to the specific post's room
+      postsNamespace.to(`post:${postId}`).emit('postLiked', {
         postId: postId.toString(),
         userId: userId.toString(),
         likesCount,
         isLiked: true,
         _count: {
-          ...(post._count || {}),
-          likes: likesCount
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
         }
       });
 
@@ -414,15 +505,36 @@ router.post("/:id/like", async (req: Request, res: Response) => {
         message: "Post liked successfully",
         postId: postId.toString(),
         likesCount,
-        isLiked: true
+        isLiked: true,
+        _count: {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
       });
     } else {
-      const likesCount = await Like.countDocuments({ postId });
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+        Like.countDocuments({ postId }),
+        Post.countDocuments({ quoted_status_id: postId }),
+        Post.countDocuments({ repost_of: postId }),
+        Bookmark.countDocuments({ postId }),
+        Post.countDocuments({ in_reply_to_status_id: postId })
+      ]);
+
       res.status(200).json({ 
         message: "Post already liked",
         postId: postId.toString(),
         likesCount,
-        isLiked: true
+        isLiked: true,
+        _count: {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
       });
     }
   } catch (error) {
@@ -435,30 +547,49 @@ router.delete("/:id/like", async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const userId = req.body.userId;
+    const postsNamespace = req.app.get('postsNamespace');
 
     const like = await Like.findOneAndDelete({ userId, postId });
     if (!like) {
       return res.status(404).json({ message: "Like not found" });
     }
 
-    const likesCount = await Like.countDocuments({ postId });
+    const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+      Like.countDocuments({ postId }),
+      Post.countDocuments({ quoted_status_id: postId }),
+      Post.countDocuments({ repost_of: postId }),
+      Bookmark.countDocuments({ postId }),
+      Post.countDocuments({ in_reply_to_status_id: postId })
+    ]);
+
     const post = await Post.findByIdAndUpdate(postId, { 
-      $set: { '_count.likes': likesCount }
+      $set: { 
+        '_count': {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
+      }
     }, { new: true });
 
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Emit socket event
-    io.to(`post:${postId}`).emit('postUnliked', {
+    // Emit to the specific post's room
+    postsNamespace.to(`post:${postId}`).emit('postUnliked', {
       postId: postId.toString(),
       userId: userId.toString(),
       likesCount,
       isLiked: false,
       _count: {
-        ...(post._count || {}),
-        likes: likesCount
+        likes: likesCount,
+        quotes: quotesCount,
+        reposts: repostsCount,
+        bookmarks: bookmarksCount,
+        replies: repliesCount
       }
     });
 
@@ -466,7 +597,14 @@ router.delete("/:id/like", async (req: Request, res: Response) => {
       message: "Like removed successfully",
       postId: postId.toString(),
       likesCount,
-      isLiked: false
+      isLiked: false,
+      _count: {
+        likes: likesCount,
+        quotes: quotesCount,
+        reposts: repostsCount,
+        bookmarks: bookmarksCount,
+        replies: repliesCount
+      }
     });
   } catch (error) {
     res.status(500).json({ message: "Error removing like", error });
