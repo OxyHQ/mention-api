@@ -18,9 +18,10 @@ router.use(authMiddleware);
 
 // Helper function to emit notification event
 const emitNotification = async (req: Request, notification: any) => {
-  const io = req.app.get('notificationsNamespace') as Server;
+  const io = req.app.get('io') as Server;
+  const notificationsNamespace = io.of('/notifications');
   const populated = await notification.populate('actorId', 'username name avatar');
-  io.to(`user:${notification.recipientId}`).emit('notification', populated);
+  notificationsNamespace.to(`user:${notification.recipientId}`).emit('notification', populated);
 };
 
 // Get notifications for current user

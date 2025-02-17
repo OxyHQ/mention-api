@@ -169,7 +169,11 @@ const configureNamespaceErrorHandling = (namespace: Namespace) => {
 
 // Create and configure namespaces with proper paths
 const chatNamespace = io.of("/api/chat");
-const notificationsNamespace = io.of("/api/notifications");
+const notificationsNamespace = io.of('/notifications');
+notificationsNamespace.on('connection', (socket) => {
+  console.log('User connected to notifications namespace');
+  // ...existing code...
+});
 const postsNamespace = io.of("/api/posts"); // Update posts namespace path
 
 // Apply verification middleware to all namespaces
