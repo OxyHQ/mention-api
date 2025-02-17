@@ -18,9 +18,8 @@ export interface IProfile extends Document {
   description?: string;
   indexedAt?: Date;
   banner?: string;
-  followersCount?: number;
-  followsCount?: number;
-  postsCount?: number;
+  location?: string;
+  website?: string;
   pinnedPost?: {
     cid?: string;
     uri?: string;
@@ -29,44 +28,52 @@ export interface IProfile extends Document {
     followers?: number;
     following?: number;
     posts?: number;
+    karma?: number;
   };
 }
 
 const ProfileSchema: Schema = new Schema(
   {
-    userID: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    userID: { 
+      type: Schema.Types.ObjectId, 
+      ref: "User", 
+      required: true
+    },
     name: {
       first: { type: String },
       last: { type: String }
     },
     avatar: { type: String },
     associated: {
-      lists: { type: Number },
-      feedgens: { type: Number },
-      starterPacks: { type: Number },
-      labeler: { type: Boolean }
+      lists: { type: Number, default: 0 },
+      feedgens: { type: Number, default: 0 },
+      starterPacks: { type: Number, default: 0 },
+      labeler: { type: Boolean, default: false }
     },
-    labels: { type: [String] },
-    created_at: { type: Date },
+    labels: { type: [String], default: [] },
+    created_at: { type: Date, default: Date.now },
     description: { type: String },
     indexedAt: { type: Date },
     banner: { type: String },
     location: { type: String },
     website: { type: String },
-    followersCount: { type: Number },
-    followsCount: { type: Number },
-    postsCount: { type: Number },
     pinnedPost: {
       cid: { type: String },
       uri: { type: String }
     },
     _count: {
-      followers: { type: Number },
-      following: { type: Number },
-      posts: { type: Number }
+      followers: { type: Number, default: 0 },
+      following: { type: Number, default: 0 },
+      posts: { type: Number, default: 0 }
     }
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    strict: true
+  }
 );
+
+// Create an index on userID for faster lookups
+ProfileSchema.index({ userID: 1 }, { unique: true });
 
 export default mongoose.model<IProfile>("Profile", ProfileSchema);
