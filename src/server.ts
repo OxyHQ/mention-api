@@ -19,6 +19,7 @@ import Post from "./models/Post";
 import searchRoutes from "./routes/search";
 import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import Notification from "./models/Notification";
+import privacyRoutes from "./routes/privacy";
 
 dotenv.config();
 
@@ -26,13 +27,22 @@ const app = express();
 const server = http.createServer(app);
 
 // Apply CORS middleware with proper configuration
-app.use(cors({
-  origin: true, // Accept requests from any origin
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
-  credentials: true,
-  optionsSuccessStatus: 204
-}));
+app.use(
+  cors({
+    origin: true, // Accept requests from any origin
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "Accept",
+      "Accept-Encoding",
+      "Accept-Language",
+    ],
+    credentials: true,
+    optionsSuccessStatus: 204,
+  })
+);
 
 // Basic middleware setup
 app.use(express.json());
@@ -77,7 +87,7 @@ const SOCKET_CONFIG = {
   COMPRESSION_THRESHOLD: 1024,
   CHUNK_SIZE: 10 * 1024,
   WINDOW_BITS: 14,
-  COMPRESSION_LEVEL: 6
+  COMPRESSION_LEVEL: 6,
 } as const;
 
 // Socket.IO Server configuration
@@ -85,9 +95,16 @@ const io = new SocketIOServer(server, {
   cors: {
     origin: true, // Accept requests from any origin
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Content-Length", "Accept", "Accept-Encoding", "Accept-Language"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "Accept",
+      "Accept-Encoding",
+      "Accept-Language",
+    ],
     credentials: true,
-    optionsSuccessStatus: 204
+    optionsSuccessStatus: 204,
   },
   transports: ["websocket", "polling"],
   path: "/socket.io",
@@ -107,22 +124,27 @@ const io = new SocketIOServer(server, {
       windowBits: SOCKET_CONFIG.WINDOW_BITS,
       level: SOCKET_CONFIG.COMPRESSION_LEVEL,
     },
-  }
+  },
 });
 
 // Enhanced socket token verification middleware with better error messages
-const verifySocketToken = async (socket: Socket, next: (err?: Error) => void) => {
+const verifySocketToken = async (
+  socket: Socket,
+  next: (err?: Error) => void
+) => {
   try {
     const token = socket.handshake.auth.token;
     if (!token) {
-      console.error('No auth token provided for socket connection');
+      console.error("No auth token provided for socket connection");
       return next(new Error("Authentication token required"));
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as { id: string };
+      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as {
+        id: string;
+      };
       if (!decoded) {
-        console.error('Token verification failed');
+        console.error("Token verification failed");
         return next(new Error("Invalid authentication token"));
       }
 
@@ -131,7 +153,7 @@ const verifySocketToken = async (socket: Socket, next: (err?: Error) => void) =>
       console.log(`Socket authenticated for user: ${decoded.id}`);
       return next();
     } catch (error) {
-      console.error('JWT verification error:', error);
+      console.error("JWT verification error:", error);
       if (error instanceof jwt.TokenExpiredError) {
         return next(error);
       }
@@ -144,7 +166,7 @@ const verifySocketToken = async (socket: Socket, next: (err?: Error) => void) =>
       return next(new Error("Authentication failed"));
     }
   } catch (error) {
-    console.error('Socket authentication error:', error);
+    console.error("Socket authentication error:", error);
     if (error instanceof Error) {
       return next(error);
     }
@@ -169,15 +191,58 @@ const configureNamespaceErrorHandling = (namespace: Namespace) => {
 
 // Create and configure namespaces with proper paths
 const chatNamespace = io.of("/api/chat");
-const notificationsNamespace = io.of('/notifications');
-notificationsNamespace.on('connection', (socket) => {
-  console.log('User connected to notifications namespace');
-  // ...existing code...
-});
+const notificationsNamespace = io.of("/notifications");
+const privacyNamespace = io.of("/api/privacy");
 const postsNamespace = io.of("/api/posts"); // Update posts namespace path
 
+// Configure privacy namespace
+privacyNamespace.on("connection", (socket: AuthenticatedSocket) => {
+  console.log(
+    "Client connected to privacy namespace from ip:",
+    socket.handshake.address
+  );
+
+  if (!socket.user?.id) {
+    console.log(
+      "Unauthenticated client attempted to connect to privacy namespace"
+    );
+    socket.disconnect(true);
+    return;
+  }
+
+  const userRoom = `user:${socket.user.id}`;
+  socket.join(userRoom);
+
+  socket.on("error", (error: Error) => {
+    console.error("Privacy socket error:", error.message);
+  });
+
+  socket.on("privacyUpdate", async (settings: any) => {
+    try {
+      if (!socket.user?.id) return;
+      // Emit to user's room that privacy settings were updated
+      privacyNamespace.to(userRoom).emit("privacySettingsUpdated", settings);
+    } catch (error) {
+      console.error("Error updating privacy settings:", error);
+    }
+  });
+
+  socket.on("disconnect", (reason: DisconnectReason) => {
+    console.log(
+      `Client ${socket.id} disconnected from privacy namespace:`,
+      reason
+    );
+    socket.leave(userRoom);
+  });
+});
+
 // Apply verification middleware to all namespaces
-[chatNamespace, notificationsNamespace, postsNamespace].forEach(namespace => {
+[
+  chatNamespace,
+  notificationsNamespace,
+  postsNamespace,
+  privacyNamespace,
+].forEach((namespace) => {
   namespace.use(verifySocketToken);
   configureNamespaceErrorHandling(namespace);
 });
@@ -186,7 +251,7 @@ const postsNamespace = io.of("/api/posts"); // Update posts namespace path
 io.use(verifySocketToken);
 io.on("connection", (socket: AuthenticatedSocket) => {
   console.log("Client connected from ip:", socket.handshake.address);
-  
+
   // Enhanced error handling
   socket.on("error", (error: Error) => {
     console.error("Socket error:", error.message);
@@ -195,9 +260,9 @@ io.on("connection", (socket: AuthenticatedSocket) => {
       socket.disconnect();
     }
   });
-  
+
   socket.on("disconnect", (reason: DisconnectReason, description?: any) => {
-    console.log("Client disconnected:", reason, description || '');
+    console.log("Client disconnected:", reason, description || "");
     // Handle specific disconnect reasons
     if (reason === "server disconnect") {
       // Reconnect if server initiated the disconnect
@@ -223,13 +288,13 @@ io.on("connection", (socket: AuthenticatedSocket) => {
   socket.on("reconnect_failed", () => {
     console.error("Failed to reconnect");
   });
-  
+
   socket.on("joinPost", (postId: string) => {
     const room = `post:${postId}`;
     socket.join(room);
     console.log(`Client ${socket.id} joined room:`, room);
   });
-  
+
   socket.on("leavePost", (postId: string) => {
     const room = `post:${postId}`;
     socket.leave(room);
@@ -238,29 +303,40 @@ io.on("connection", (socket: AuthenticatedSocket) => {
 });
 
 // Enhanced error handling for namespaces
-[chatNamespace, notificationsNamespace, postsNamespace].forEach((namespace: Namespace) => {
-  namespace.on("connection_error", (error: Error) => {
-    console.error(`Namespace ${namespace.name} connection error:`, error.message);
-  });
+[chatNamespace, notificationsNamespace, postsNamespace].forEach(
+  (namespace: Namespace) => {
+    namespace.on("connection_error", (error: Error) => {
+      console.error(
+        `Namespace ${namespace.name} connection error:`,
+        error.message
+      );
+    });
 
-  namespace.on("connect_error", (error: SocketError) => {
-    console.error(`${namespace.name}: Connect error:`, error.message);
-    // Log detailed error info
-    if (error.description) console.error('Error description:', error.description);
-    if (error.context) console.error('Error context:', error.context);
-  });
+    namespace.on("connect_error", (error: SocketError) => {
+      console.error(`${namespace.name}: Connect error:`, error.message);
+      // Log detailed error info
+      if (error.description)
+        console.error("Error description:", error.description);
+      if (error.context) console.error("Error context:", error.context);
+    });
 
-  namespace.on("connect_timeout", () => {
-    console.error(`${namespace.name}: Connect timeout`);
-  });
-});
+    namespace.on("connect_timeout", () => {
+      console.error(`${namespace.name}: Connect timeout`);
+    });
+  }
+);
 
 // Configure notifications namespace
 notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
-  console.log("Client connected to notifications namespace from ip:", socket.handshake.address);
-  
+  console.log(
+    "Client connected to notifications namespace from ip:",
+    socket.handshake.address
+  );
+
   if (!socket.user?.id) {
-    console.log("Unauthenticated client attempted to connect to notifications namespace");
+    console.log(
+      "Unauthenticated client attempted to connect to notifications namespace"
+    );
     socket.disconnect(true);
     return;
   }
@@ -283,7 +359,9 @@ notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
         { new: true }
       ).populate("actorId", "username name avatar");
       if (notification) {
-        notificationsNamespace.to(userRoom).emit("notificationUpdated", notification);
+        notificationsNamespace
+          .to(userRoom)
+          .emit("notificationUpdated", notification);
       }
     } catch (error) {
       console.error("Error marking notification as read:", error);
@@ -301,33 +379,43 @@ notificationsNamespace.on("connection", (socket: AuthenticatedSocket) => {
   });
 
   socket.on("disconnect", (reason: DisconnectReason, description?: any) => {
-    console.log(`Client ${socket.id} disconnected from notifications namespace:`, reason, description || '');
+    console.log(
+      `Client ${socket.id} disconnected from notifications namespace:`,
+      reason,
+      description || ""
+    );
     socket.leave(userRoom);
   });
 });
 
 // Configure postsNamespace events
-postsNamespace.on('connection', (socket: AuthenticatedSocket) => {
-  console.log("Client connected to posts namespace from ip:", socket.handshake.address);
-  
+postsNamespace.on("connection", (socket: AuthenticatedSocket) => {
+  console.log(
+    "Client connected to posts namespace from ip:",
+    socket.handshake.address
+  );
+
   socket.on("error", (error: Error) => {
     console.error("Posts socket error:", error.message);
   });
 
-  socket.on('joinPost', (postId: string) => {
+  socket.on("joinPost", (postId: string) => {
     const room = `post:${postId}`;
     socket.join(room);
     console.log(`Client ${socket.id} joined post room:`, room);
   });
-  
-  socket.on('leavePost', (postId: string) => {
+
+  socket.on("leavePost", (postId: string) => {
     const room = `post:${postId}`;
     socket.leave(room);
     console.log(`Client ${socket.id} left post room:`, room);
   });
 
   socket.on("disconnect", (reason: DisconnectReason) => {
-    console.log(`Client ${socket.id} disconnected from posts namespace:`, reason);
+    console.log(
+      `Client ${socket.id} disconnected from posts namespace:`,
+      reason
+    );
   });
 });
 
@@ -336,6 +424,7 @@ app.set("io", io);
 app.set("chatNamespace", chatNamespace);
 app.set("notificationsNamespace", notificationsNamespace);
 app.set("postsNamespace", postsNamespace);
+app.set("privacyNamespace", privacyNamespace);
 
 // Set up chat routes with socket namespace
 app.use("/api/chat", createChatRouter(chatNamespace));
@@ -428,6 +517,7 @@ app.use("/api/lists", listsRoutes);
 app.use("/api/hashtags", hashtagsRoutes);
 app.use("/api/auth", authRouter);
 app.use("/api/notifications", notificationsRouter);
+app.use("/api/privacy", privacyRoutes);
 
 // Only call listen if this module is run directly
 const PORT = process.env.PORT || 3000;
@@ -438,4 +528,4 @@ if (require.main === module) {
 }
 
 export default server;
-export { io, chatNamespace, notificationsNamespace };
+export { io, chatNamespace, notificationsNamespace, privacyNamespace };
