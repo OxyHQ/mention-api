@@ -20,6 +20,7 @@ import searchRoutes from "./routes/search";
 import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import Notification from "./models/Notification";
 import privacyRoutes from "./routes/privacy";
+import analyticsRoutes from "./routes/analytics.routes";
 
 dotenv.config();
 
@@ -518,6 +519,7 @@ app.use("/api/hashtags", hashtagsRoutes);
 app.use("/api/auth", authRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/privacy", privacyRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 // Only call listen if this module is run directly
 const PORT = process.env.PORT || 3000;
