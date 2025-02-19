@@ -205,6 +205,66 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+// Retrieve bookmarked posts for a user
+router.get("/bookmarks", async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found " + userId });
+    }
+
+    const bookmarks = await Bookmark.find({ userId })
+      .populate({
+        path: "postId",
+        model: "Post",
+        populate: {
+          path: "userID",
+          model: "User",
+          select: "username name avatar"
+        }
+      })
+      .sort({ createdAt: -1 });
+
+    const bookmarkedPosts = await Promise.all(bookmarks.map(async (bookmark) => {
+      const post = bookmark.postId as any;
+      if (!post) return null;
+
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+        Like.countDocuments({ postId: post._id }),
+        Post.countDocuments({ quoted_status_id: post._id }),
+        Post.countDocuments({ repost_of: post._id }),
+        Bookmark.countDocuments({ postId: post._id }),
+        Post.countDocuments({ in_reply_to_status_id: post._id })
+      ]);
+
+      const isLiked = await Like.exists({ userId, postId: post._id });
+      const isBookmarked = true; // Since this is in bookmarks, it must be bookmarked
+
+      return {
+        id: post._id,
+        ...post.toObject(),
+        isLiked: !!isLiked,
+        isBookmarked,
+        _count: {
+          likes: likesCount,
+          quotes: quotesCount,
+          reposts: repostsCount,
+          bookmarks: bookmarksCount,
+          replies: repliesCount
+        }
+      };
+    }));
+
+    const filteredPosts = bookmarkedPosts.filter(post => post !== null);
+    res.json({ posts: filteredPosts });
+  } catch (error) {
+    console.error("Error retrieving bookmarked posts:", error);
+    res.status(500).json({ message: "Error retrieving bookmarked posts", error });
+  }
+});
+
 // Get a single post by ID
 router.get("/:id", async (req: Request, res: Response) => {
   try {
@@ -370,66 +430,6 @@ router.delete("/:id/bookmark", async (req: Request, res: Response) => {
     res.status(200).json({ message: "Bookmark removed successfully" });
   } catch (err) {
     res.status(500).json({ message: "Error removing bookmark", error: err });
-  }
-});
-
-// Retrieve bookmarked posts for a user
-router.get("/bookmarks", async (req: Request, res: Response) => {
-  try {
-    const userId = req.query.userId;
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found " + userId });
-    }
-
-    const bookmarks = await Bookmark.find({ userId })
-      .populate({
-        path: "postId",
-        model: "Post",
-        populate: {
-          path: "userID",
-          model: "User",
-          select: "username name avatar"
-        }
-      })
-      .sort({ createdAt: -1 });
-
-    const bookmarkedPosts = await Promise.all(bookmarks.map(async (bookmark) => {
-      const post = bookmark.postId as any;
-      if (!post) return null;
-
-      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
-        Like.countDocuments({ postId: post._id }),
-        Post.countDocuments({ quoted_status_id: post._id }),
-        Post.countDocuments({ repost_of: post._id }),
-        Bookmark.countDocuments({ postId: post._id }),
-        Post.countDocuments({ in_reply_to_status_id: post._id })
-      ]);
-
-      const isLiked = await Like.exists({ userId, postId: post._id });
-      const isBookmarked = true; // Since this is in bookmarks, it must be bookmarked
-
-      return {
-        id: post._id,
-        ...post.toObject(),
-        isLiked: !!isLiked,
-        isBookmarked,
-        _count: {
-          likes: likesCount,
-          quotes: quotesCount,
-          reposts: repostsCount,
-          bookmarks: bookmarksCount,
-          replies: repliesCount
-        }
-      };
-    }));
-
-    const filteredPosts = bookmarkedPosts.filter(post => post !== null);
-    res.json({ posts: filteredPosts });
-  } catch (error) {
-    console.error("Error retrieving bookmarked posts:", error);
-    res.status(500).json({ message: "Error retrieving bookmarked posts", error });
   }
 });
 
