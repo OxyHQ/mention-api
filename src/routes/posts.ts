@@ -173,19 +173,21 @@ router.get("/", async (req: Request, res: Response) => {
       const postRoomId = `post:${post._id}`;
       postsNamespace.socketsJoin(postRoomId);
 
-      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked] = await Promise.all([
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked, isBookmarked] = await Promise.all([
         Like.countDocuments({ postId: post._id }),
         Post.countDocuments({ quoted_status_id: post._id }),
         Post.countDocuments({ repost_of: post._id }),
         Bookmark.countDocuments({ postId: post._id }),
         Post.countDocuments({ in_reply_to_status_id: post._id }),
-        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false
+        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false,
+        currentUserId ? Bookmark.exists({ userId: currentUserId, postId: post._id }) : false
       ]);
 
       return {
         id: post._id,
         ...post.toObject(),
         isLiked: !!isLiked,
+        isBookmarked: !!isBookmarked,
         _count: {
           likes: likesCount,
           quotes: quotesCount,
@@ -319,19 +321,21 @@ router.get("/hashtag/:hashtag", async (req: Request, res: Response) => {
       const postRoomId = `post:${post._id}`;
       postsNamespace.socketsJoin(postRoomId);
 
-      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked] = await Promise.all([
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked, isBookmarked] = await Promise.all([
         Like.countDocuments({ postId: post._id }),
         Post.countDocuments({ quoted_status_id: post._id }),
         Post.countDocuments({ repost_of: post._id }),
         Bookmark.countDocuments({ postId: post._id }),
         Post.countDocuments({ in_reply_to_status_id: post._id }),
-        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false
+        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false,
+        currentUserId ? Bookmark.exists({ userId: currentUserId, postId: post._id }) : false
       ]);
 
       return {
         id: post._id,
         ...post.toObject(),
         isLiked: !!isLiked,
+        isBookmarked: !!isBookmarked,
         _count: {
           likes: likesCount,
           quotes: quotesCount,
@@ -344,19 +348,21 @@ router.get("/hashtag/:hashtag", async (req: Request, res: Response) => {
 
     // Fetch related posts with the same treatment
     const relatedPosts = await Promise.all((await Post.find({ text: { $regex: `#${hashtag}`, $options: "i" } }).limit(5)).map(async post => {
-      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked] = await Promise.all([
+      const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount, isLiked, isBookmarked] = await Promise.all([
         Like.countDocuments({ postId: post._id }),
         Post.countDocuments({ quoted_status_id: post._id }),
         Post.countDocuments({ repost_of: post._id }),
         Bookmark.countDocuments({ postId: post._id }),
         Post.countDocuments({ in_reply_to_status_id: post._id }),
-        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false
+        currentUserId ? Like.exists({ userId: currentUserId, postId: post._id }) : false,
+        currentUserId ? Bookmark.exists({ userId: currentUserId, postId: post._id }) : false
       ]);
 
       return {
         id: post._id,
         ...post.toObject(),
         isLiked: !!isLiked,
+        isBookmarked: !!isBookmarked,
         _count: {
           likes: likesCount,
           quotes: quotesCount,
@@ -410,7 +416,45 @@ router.post("/:id/bookmark", async (req: Request, res: Response) => {
       await newBookmark.save();
     }
 
-    res.status(200).json({ message: "Post bookmarked successfully" });
+    const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+      Like.countDocuments({ postId }),
+      Post.countDocuments({ quoted_status_id: postId }),
+      Post.countDocuments({ repost_of: postId }),
+      Bookmark.countDocuments({ postId }),
+      Post.countDocuments({ in_reply_to_status_id: postId })
+    ]);
+
+    // Get posts namespace
+    const postsNamespace = req.app.get('postsNamespace');
+
+    // Emit to the specific post's room
+    postsNamespace.to(`post:${postId}`).emit('postBookmarked', {
+      postId: postId.toString(),
+      userId: userId.toString(),
+      bookmarksCount,
+      isBookmarked: true,
+      _count: {
+        likes: likesCount,
+        quotes: quotesCount,
+        reposts: repostsCount,
+        bookmarks: bookmarksCount,
+        replies: repliesCount
+      }
+    });
+
+    res.status(200).json({ 
+      message: "Post bookmarked successfully",
+      postId: postId.toString(),
+      bookmarksCount,
+      isBookmarked: true,
+      _count: {
+        likes: likesCount,
+        quotes: quotesCount,
+        reposts: repostsCount,
+        bookmarks: bookmarksCount,
+        replies: repliesCount
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: "Error bookmarking post", error });
   }
@@ -427,9 +471,29 @@ router.delete("/:id/bookmark", async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Bookmark not found" });
     }
 
-    res.status(200).json({ message: "Bookmark removed successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Error removing bookmark", error: err });
+    const [likesCount, quotesCount, repostsCount, bookmarksCount, repliesCount] = await Promise.all([
+      Like.countDocuments({ postId }),
+      Post.countDocuments({ quoted_status_id: postId }),
+      Post.countDocuments({ repost_of: postId }),
+      Bookmark.countDocuments({ postId }),
+      Post.countDocuments({ in_reply_to_status_id: postId })
+    ]);
+
+    res.status(200).json({ 
+      message: "Bookmark removed successfully",
+      postId: postId.toString(),
+      bookmarksCount,
+      isBookmarked: false,
+      _count: {
+        likes: likesCount,
+        quotes: quotesCount,
+        reposts: repostsCount,
+        bookmarks: bookmarksCount,
+        replies: repliesCount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error removing bookmark", error });
   }
 });
 
@@ -625,6 +689,23 @@ router.get("/:id/like", async (req: Request, res: Response) => {
     res.json({ isLiked: !!like });
   } catch (error) {
     res.status(500).json({ message: "Error checking like status", error });
+  }
+});
+
+// Check if a post is bookmarked by user
+router.get("/:id/bookmark", async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const userId = req.query.userId as string;
+
+    if (!postId || !userId) {
+      return res.status(400).json({ message: "Missing required parameters" });
+    }
+
+    const bookmark = await Bookmark.findOne({ userId, postId });
+    res.json({ isBookmarked: !!bookmark });
+  } catch (error) {
+    res.status(500).json({ message: "Error checking bookmark status", error });
   }
 });
 
