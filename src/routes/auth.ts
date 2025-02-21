@@ -6,28 +6,37 @@ import Profile from "../models/Profile";
 import Notification from "../models/Notification";
 import { AuthenticationError } from '../utils/authErrors';
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger';
 
 // Ensure environment variables are loaded
 dotenv.config();
 
 const router = express.Router();
 
-// These values should be accessed directly from process.env where needed
-// and not stored in variables to ensure they're always up to date
+// Generate tokens with error handling
 const generateTokens = (userId: string, username: string) => {
-  const accessToken = jwt.sign(
-    { id: userId, username },
-    process.env.ACCESS_TOKEN_SECRET!,
-    { expiresIn: "1h" }
-  );
-  
-  const refreshToken = jwt.sign(
-    { id: userId, username },
-    process.env.REFRESH_TOKEN_SECRET!,
-    { expiresIn: "7d" }
-  );
-  
-  return { accessToken, refreshToken };
+  try {
+    if (!process.env.ACCESS_TOKEN_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
+      throw new Error('Token secrets not configured');
+    }
+
+    const accessToken = jwt.sign(
+      { id: userId, username },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: "1h" }
+    );
+    
+    const refreshToken = jwt.sign(
+      { id: userId, username },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: "7d" }
+    );
+    
+    return { accessToken, refreshToken };
+  } catch (error) {
+    logger.error('Token generation error:', error);
+    throw new Error('Failed to generate authentication tokens');
+  }
 };
 
 // User signup API
@@ -184,34 +193,86 @@ router.post("/signup", async (req: Request, res: Response) => {
   }
 });
 
-// Enhanced signin route
-router.post("/signin", async (req: Request, res: Response) => {
+// Enhanced login route with detailed error handling
+router.post("/login", async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
+    
+    // Validate input
     if (!username || !password) {
-      return res.status(400).json({ message: "Username and password are required" });
+      return res.status(400).json({ 
+        success: false,
+        message: "Username and password are required",
+        details: {
+          username: !username ? "Username is required" : null,
+          password: !password ? "Password is required" : null
+        }
+      });
     }
 
-    const user = await User.findOne({ username }).select('+password') as IUser;
+    // Find user with password
+    const user = await User.findOne({ username }).select('+password +refreshToken');
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      logger.warn(`Login attempt failed: User not found - ${username}`);
+      return res.status(401).json({ 
+        success: false,
+        message: "Invalid username or password"
+      });
     }
 
+    // Verify password
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      return res.status(401).json({ message: "Invalid password" });
+      logger.warn(`Login attempt failed: Invalid password for user - ${username}`);
+      return res.status(401).json({ 
+        success: false,
+        message: "Invalid username or password"
+      });
     }
 
+    // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.username);
-    
-    // Store refresh token hash in user document
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
-    user.refreshToken = refreshTokenHash;
-    await user.save();
 
-    const profile = await Profile.findOne({ user: user._id });
+    // Store refresh token hash
+    try {
+      const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+      user.refreshToken = refreshTokenHash;
+      await user.save();
+    } catch (tokenError) {
+      logger.error('Error storing refresh token:', tokenError);
+      return res.status(500).json({ 
+        success: false,
+        message: "Login failed - Unable to complete authentication"
+      });
+    }
+
+    // Get or create user profile
+    let profile = await Profile.findOne({ user: user._id });
+    if (!profile) {
+      logger.info(`Creating missing profile for user ${user._id}`);
+      profile = await Profile.create({ 
+        user: user._id,
+        userID: user._id.toString(),
+        name: { first: "", last: "" },
+        avatar: "",
+        associated: {
+          lists: 0,
+          feedgens: 0,
+          starterPacks: 0,
+          labeler: false
+        },
+        labels: [],
+        description: "",
+        banner: "",
+        pinnedPosts: { id: "" },
+        created_at: new Date(),
+        indexedAt: new Date()
+      });
+    }
     
+    // Return success response
     return res.status(200).json({
+      success: true,
       message: "Login successful",
       accessToken,
       refreshToken,
@@ -224,7 +285,12 @@ router.post("/signin", async (req: Request, res: Response) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({ message: "Login error", error });
+    logger.error('Login error:', error);
+    return res.status(500).json({ 
+      success: false,
+      message: "An unexpected error occurred during login",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 });
 
@@ -233,41 +299,69 @@ router.post("/refresh", async (req: Request, res: Response) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) {
+      logger.warn('Refresh attempt without token');
       throw new AuthenticationError("Refresh token required", 400);
     }
 
-    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET!) as { id: string; username: string };
-    const user = await User.findById(decoded.id).select('+refreshToken') as IUser;
-
-    if (!user) {
-      throw new AuthenticationError("User not found", 404);
+    if (!process.env.REFRESH_TOKEN_SECRET) {
+      logger.error('REFRESH_TOKEN_SECRET not configured');
+      throw new AuthenticationError("Server configuration error", 500);
     }
 
-    // Verify stored refresh token
-    const isValidToken = await bcrypt.compare(refreshToken, user.refreshToken || '');
-    if (!isValidToken) {
-      throw new AuthenticationError("Invalid refresh token", 401);
+    try {
+      const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET) as { id: string; username: string };
+      const user = await User.findById(decoded.id).select('+refreshToken') as IUser;
+
+      if (!user) {
+        logger.warn(`Refresh failed: User not found - ${decoded.id}`);
+        throw new AuthenticationError("Invalid session", 404);
+      }
+
+      // Verify stored refresh token
+      const isValidToken = await bcrypt.compare(refreshToken, user.refreshToken || '');
+      if (!isValidToken) {
+        logger.warn(`Refresh failed: Invalid token for user ${decoded.id}`);
+        throw new AuthenticationError("Invalid refresh token", 401);
+      }
+
+      const tokens = generateTokens(user._id.toString(), user.username);
+      
+      // Update stored refresh token
+      const newRefreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
+      user.refreshToken = newRefreshTokenHash;
+      await user.save();
+
+      logger.info(`Refresh successful for user ${decoded.id}`);
+      return res.status(200).json({
+        success: true,
+        message: "Tokens refreshed successfully",
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken
+      });
+    } catch (jwtError) {
+      if (jwtError instanceof jwt.TokenExpiredError) {
+        logger.info('Refresh failed: Token expired');
+        throw new AuthenticationError("Refresh token expired", 401);
+      }
+      if (jwtError instanceof jwt.JsonWebTokenError) {
+        logger.warn('Refresh failed: Invalid token');
+        throw new AuthenticationError("Invalid refresh token", 401);
+      }
+      throw jwtError;
     }
-
-    const tokens = generateTokens(user._id.toString(), user.username);
-    
-    // Update stored refresh token
-    const newRefreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
-    user.refreshToken = newRefreshTokenHash;
-    await user.save();
-
-    return res.status(200).json({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken
-    });
   } catch (error) {
     if (error instanceof AuthenticationError) {
-      return res.status(error.statusCode || 401).json({ message: error.message });
+      return res.status(error.statusCode || 401).json({ 
+        success: false,
+        message: error.message 
+      });
     }
-    if (error instanceof jwt.JsonWebTokenError) {
-      return res.status(401).json({ message: "Invalid refresh token" });
-    }
-    return res.status(500).json({ message: "Token refresh error" });
+    logger.error('Unexpected refresh error:', error);
+    return res.status(500).json({ 
+      success: false,
+      message: "Token refresh failed",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 });
 

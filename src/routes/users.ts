@@ -8,15 +8,27 @@ const router = express.Router();
 const getUserIDbyUsername: RequestHandler = async (req, res) => {
     try {
         const { username } = req.params;
-        const user = await User.findOne({ username });
+        if (!username) {
+            return res.status(400).json({ 
+                message: "Username is required",
+                details: "The username parameter is missing"
+            });
+        }
+        const user = await User.findOne({ username: username.toLowerCase() });
         if (!user) {
-            res.status(404).json({ message: "User not found" });
-            return;
+            return res.status(404).json({ 
+                message: "User not found",
+                details: `No user exists with username: ${username}`
+            });
         }
         res.json({ id: user._id });
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching profile", error });
-  }
+    } catch (error) {
+        console.error("Error in getUserIDbyUsername:", error);
+        res.status(500).json({ 
+            message: "Error fetching user ID",
+            details: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
 };
 
 // Get user by ID

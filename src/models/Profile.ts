@@ -41,7 +41,7 @@ export interface IProfile extends Document {
   created_at?: Date;
   description?: string;
   indexedAt?: Date;
-  banner?: string;
+  coverPhoto?: string;
   location?: string;
   website?: string;
   pinnedPost?: {

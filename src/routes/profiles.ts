@@ -66,19 +66,37 @@ const createProfile: RequestHandler = async (req, res) => {
     // Check if profile already exists
     const existingProfile = await Profile.findOne({ userID: userObjectId });
     if (existingProfile) {
-      return res.status(409).json({ message: "Profile already exists for this user" });
+      return res.status(409).json({ 
+        message: "Profile already exists for this user",
+        details: "Each user can only have one profile. The profile for this user ID already exists."
+      });
     }
 
-    const newProfile = new Profile({
-      ...profileData,
-      userID: userObjectId,
-      created_at: new Date()
-    });
+    try {
+      const newProfile = new Profile({
+        ...profileData,
+        userID: userObjectId,
+        created_at: new Date()
+      });
 
-    await newProfile.save();
-    res.status(201).json({ message: "Profile created successfully", profile: newProfile });
+      await newProfile.save();
+      res.status(201).json({ message: "Profile created successfully", profile: newProfile });
+    } catch (error) {
+      // Check for MongoDB duplicate key error (11000)
+      if ((error as any).code === 11000) {
+        return res.status(409).json({ 
+          message: "Profile already exists for this user",
+          details: "A race condition occurred. Each user can only have one profile."
+        });
+      }
+      throw error;
+    }
   } catch (error) {
-    res.status(500).json({ message: "Error creating profile", error });
+    console.error("Profile creation error:", error);
+    res.status(500).json({ 
+      message: "Error creating profile", 
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -110,10 +128,17 @@ const getProfileById: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    if (!id) {
+      return res.status(400).json({ 
+        message: "User ID is required",
+        details: "The ID parameter is missing"
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ 
         message: "Invalid user ID format",
-        details: "The provided ID is not a valid MongoDB ObjectId"
+        details: `The provided ID '${id}' is not a valid MongoDB ObjectId`
       });
     }
 
@@ -123,7 +148,7 @@ const getProfileById: RequestHandler = async (req, res) => {
     if (!profile) {
       return res.status(404).json({ 
         message: "Profile not found",
-        details: "No profile exists for the provided user ID" 
+        details: `No profile exists for user ID: ${id}` 
       });
     }
 
@@ -131,13 +156,15 @@ const getProfileById: RequestHandler = async (req, res) => {
     if (!user) {
       return res.status(404).json({ 
         message: "User not found",
-        details: "The associated user does not exist" 
+        details: "The associated user account no longer exists"
       });
     }
 
     // Get follower and following counts using the Follow model
-    const followersCount = await Follow.countDocuments({ followingId: userObjectId });
-    const followingCount = await Follow.countDocuments({ followerId: userObjectId });
+    const [followersCount, followingCount] = await Promise.all([
+      Follow.countDocuments({ followingId: userObjectId }),
+      Follow.countDocuments({ followerId: userObjectId })
+    ]);
     
     const combinedData = {
       id: profile.userID.toString(),

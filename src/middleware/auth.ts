@@ -1,55 +1,88 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
-import { AuthenticationError, createErrorResponse } from '../utils/authErrors';
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger';
 
 // Ensure environment variables are loaded
 dotenv.config();
 
-export interface AuthRequest extends Request {
-  user?: any;
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+  };
 }
 
-export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      console.warn('[Auth] Missing token for request:', req.path);
-      throw new AuthenticationError('Authentication token is required', 401);
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      logger.warn('Auth failed: No token provided');
+      return res.status(401).json({ 
+        success: false,
+        message: 'Authentication required',
+        code: 'NO_TOKEN'
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    if (!process.env.ACCESS_TOKEN_SECRET) {
+      logger.error('ACCESS_TOKEN_SECRET not configured');
+      return res.status(500).json({ 
+        success: false,
+        message: 'Server configuration error',
+        code: 'CONFIG_ERROR'
+      });
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as { id: string };
+      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET) as { id: string };
       const user = await User.findById(decoded.id).select('+refreshToken');
+      
       if (!user) {
-        console.warn('[Auth] User not found:', decoded.id);
-        throw new AuthenticationError('User not found or deleted', 404);
+        logger.warn(`Auth failed: User not found for id ${decoded.id}`);
+        return res.status(401).json({ 
+          success: false,
+          message: 'Invalid session',
+          code: 'USER_NOT_FOUND'
+        });
       }
+
       if (!user.refreshToken) {
-        console.warn('[Auth] No refresh token for user:', decoded.id);
-        throw new AuthenticationError('Session invalidated', 401);
+        logger.warn(`Auth failed: No refresh token for user ${decoded.id}`);
+        return res.status(401).json({
+          success: false,
+          message: 'Session expired',
+          code: 'NO_REFRESH_TOKEN'
+        });
       }
-      req.user = user;
+
+      req.user = { id: user._id.toString() };
       next();
     } catch (jwtError) {
-      console.error('[Auth] JWT verification failed:', jwtError);
       if (jwtError instanceof jwt.TokenExpiredError) {
-        throw new AuthenticationError('Token has expired', 401);
+        return res.status(401).json({ 
+          success: false,
+          message: 'Session expired',
+          code: 'TOKEN_EXPIRED'
+        });
       }
       if (jwtError instanceof jwt.JsonWebTokenError) {
-        if (jwtError.message === 'invalid signature') {
-          throw new AuthenticationError('Token signature is invalid', 401);
-        }
-        throw new AuthenticationError('Invalid token', 401);
+        return res.status(401).json({ 
+          success: false,
+          message: 'Invalid session',
+          code: 'INVALID_TOKEN'
+        });
       }
       throw jwtError;
     }
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      const response = createErrorResponse(error);
-      return res.status(response.error.code).json(response);
-    }
-    return res.status(500).json({ error: { message: 'An unknown error occurred', code: 500 } });
+  } catch (error) {
+    logger.error('Unexpected auth error:', error);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Authentication error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };

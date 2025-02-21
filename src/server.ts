@@ -21,6 +21,7 @@ import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import Notification from "./models/Notification";
 import privacyRoutes from "./routes/privacy";
 import analyticsRoutes from "./routes/analytics.routes";
+import Block from "./models/Block";
 
 dotenv.config();
 
@@ -494,6 +495,7 @@ db.once("open", () => {
   require("./models/User");
   require("./models/Profile");
   require("./models/Post");
+  require("./models/Block");
 });
 
 // API Routes
