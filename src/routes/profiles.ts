@@ -10,6 +10,7 @@ import { authMiddleware } from '../middleware/auth';
 interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
+    [key: string]: any;
   };
 }
 
@@ -20,7 +21,9 @@ router.use(authMiddleware);
 
 // Update the profile schema to include location and website
 const profileSchema = z.object({
-  userID: z.string(),  // We'll convert this to ObjectId in the handler
+  userID: z.string().refine(id => mongoose.Types.ObjectId.isValid(id), {
+    message: "Invalid MongoDB ObjectId format"
+  }),
   name: z.object({
     first: z.string().optional(),
     last: z.string().optional(),
@@ -57,10 +60,7 @@ const createProfile: RequestHandler = async (req, res) => {
   try {
     const profileData = profileSchema.parse(req.body);
     
-    if (!mongoose.Types.ObjectId.isValid(profileData.userID)) {
-      return res.status(400).json({ message: "Invalid user ID format" });
-    }
-
+    // ObjectId validation is now handled by zod schema
     const userObjectId = new mongoose.Types.ObjectId(profileData.userID);
     
     // Check if profile already exists
@@ -92,6 +92,12 @@ const createProfile: RequestHandler = async (req, res) => {
       throw error;
     }
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ 
+        message: "Validation error",
+        details: error.errors
+      });
+    }
     console.error("Profile creation error:", error);
     res.status(500).json({ 
       message: "Error creating profile", 
