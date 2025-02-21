@@ -22,6 +22,8 @@ import Notification from "./models/Notification";
 import privacyRoutes from "./routes/privacy";
 import analyticsRoutes from "./routes/analytics.routes";
 import Block from "./models/Block";
+import subscriptionRoutes from './routes/subscription.routes';
+import paymentRoutes from './routes/payment.routes';
 
 dotenv.config();
 
@@ -522,6 +524,8 @@ app.use("/api/auth", authRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/privacy", privacyRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Only call listen if this module is run directly
 const PORT = process.env.PORT || 3000;
