@@ -110,7 +110,8 @@ router.use(authMiddleware);
 
 // Upload a file linked to a user
 router.post("/upload", ((req: AuthenticatedRequest, res: Response) => {
-  upload(req, res, async (err) => {
+  // Cast req and res to any to bypass type conflicts between express and multer
+  upload(req as any, res as any, async (err) => {
     if (err) {
       console.error("Multer error:", err);
       return res.status(400).json({ message: "File upload error", error: err.message });
