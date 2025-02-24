@@ -1,35 +1,47 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-export interface IFollow extends Document {
-  followerId: mongoose.Types.ObjectId;  // User who follows
-  followingId: mongoose.Types.ObjectId; // User being followed
-  createdAt: Date;
+export enum FollowType {
+  USER = 'user',
+  HASHTAG = 'hashtag',
+  TOPIC = 'topic'
 }
 
-const FollowSchema: Schema = new Schema({
-  followerId: { 
-    type: Schema.Types.ObjectId, 
-    ref: "User", 
-    required: true 
-  },
-  followingId: { 
-    type: Schema.Types.ObjectId, 
-    ref: "User", 
-    required: true 
-  },
-  createdAt: { 
-    type: Date, 
-    default: Date.now 
-  }
-}, {
-  timestamps: true
-});
+export interface IFollow extends Document {
+  followerUserId: mongoose.Types.ObjectId;
+  followType: FollowType;
+  followedId: mongoose.Types.ObjectId | string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Compound index to ensure unique follows and optimize queries
-FollowSchema.index({ followerId: 1, followingId: 1 }, { unique: true });
-// Index for getting followers
-FollowSchema.index({ followingId: 1 });
-// Index for getting following
-FollowSchema.index({ followerId: 1 });
+const FollowSchema: Schema = new Schema(
+  {
+    followerUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    followType: {
+      type: String,
+      enum: Object.values(FollowType),
+      required: true,
+    },
+    followedId: {
+      type: Schema.Types.ObjectId,
+      refPath: 'followType',
+      required: true,
+    }
+  },
+  {
+    timestamps: true,
+    strict: true,
+  }
+);
+
+// Create a compound index to ensure unique follows
+FollowSchema.index(
+  { followerUserId: 1, followType: 1, followedId: 1 },
+  { unique: true }
+);
 
 export default mongoose.model<IFollow>("Follow", FollowSchema);

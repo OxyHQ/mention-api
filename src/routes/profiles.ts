@@ -1,442 +1,144 @@
-import express, { RequestHandler, Request } from "express";
-import Profile from "../models/Profile";
-import Follow from "../models/Follow";
-import mongoose from "mongoose";
-import { z } from "zod";
-import User from "../models/User";
+import { Router, Request, Response } from 'express';
+import User, { IUser } from '../models/User';
 import { authMiddleware } from '../middleware/auth';
+import { logger } from '../utils/logger';
+import { Types } from 'mongoose';
+import { ParsedQs } from 'qs';
+import Follow, { FollowType } from '../models/Follow';
 
-// Extend Request type to include user
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    [key: string]: any;
-  };
+interface SearchQuery extends ParsedQs {
+  query?: string;
+  limit?: string;
+  offset?: string;
 }
 
-const router = express.Router();
+const router = Router();
 
-// Apply auth middleware to all routes
-router.use(authMiddleware);
-
-// Update the profile schema to include location and website
-const profileSchema = z.object({
-  userID: z.string().refine(id => mongoose.Types.ObjectId.isValid(id), {
-    message: "Invalid MongoDB ObjectId format"
-  }),
-  name: z.object({
-    first: z.string().optional(),
-    last: z.string().optional(),
-  }),
-  avatar: z.string().optional(),
-  associated: z.object({
-    lists: z.number().optional(),
-    feedgens: z.number().optional(),
-    starterPacks: z.number().optional(),
-    labeler: z.boolean().optional(),
-  }).optional(),
-  labels: z.array(z.string()).optional(),
-  description: z.string().optional(),
-  banner: z.string().optional(),
-  location: z.string().optional(),
-  website: z.string().optional(),
-});
-
-// Define the profile update schema with only editable fields
-const profileUpdateSchema = z.object({
-  name: z.object({
-    first: z.string().optional(),
-    last: z.string().optional(),
-  }).optional(),
-  avatar: z.string().optional(),
-  description: z.string().optional(),
-  banner: z.string().optional(),
-  location: z.string().optional(),
-  website: z.string().optional(),
-});
-
-// Create a new profile
-const createProfile: RequestHandler = async (req, res) => {
+// Get profile by username
+router.get('/username/:username', async (req: Request, res: Response) => {
   try {
-    const profileData = profileSchema.parse(req.body);
-    
-    // ObjectId validation is now handled by zod schema
-    const userObjectId = new mongoose.Types.ObjectId(profileData.userID);
-    
-    // Check if profile already exists
-    const existingProfile = await Profile.findOne({ userID: userObjectId });
-    if (existingProfile) {
-      return res.status(409).json({ 
-        message: "Profile already exists for this user",
-        details: "Each user can only have one profile. The profile for this user ID already exists."
-      });
-    }
+    const user = await User.findOne({ username: req.params.username })
+      .select('-password -refreshToken');
 
-    try {
-      const newProfile = new Profile({
-        ...profileData,
-        userID: userObjectId,
-        created_at: new Date()
-      });
-
-      await newProfile.save();
-      res.status(201).json({ message: "Profile created successfully", profile: newProfile });
-    } catch (error) {
-      // Check for MongoDB duplicate key error (11000)
-      if ((error as any).code === 11000) {
-        return res.status(409).json({ 
-          message: "Profile already exists for this user",
-          details: "A race condition occurred. Each user can only have one profile."
-        });
-      }
-      throw error;
-    }
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        message: "Validation error",
-        details: error.errors
-      });
-    }
-    console.error("Profile creation error:", error);
-    res.status(500).json({ 
-      message: "Error creating profile", 
-      details: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-};
-
-//Get all profiles
-const getProfiles: RequestHandler = async (req, res) => {
-  try {
-    const profiles = await Profile.find();
-    const profilesWithUsernames = await Promise.all(
-      profiles.map(async (profile) => {
-        let username = "";
-        // Replace API call with MongoDB lookup for username
-        const user = await User.findById(profile.userID);
-        if (user) {
-          username = user.username;
-        } else {
-          console.error("User not found for user ID:", profile.userID);
-        }
-        return { ...profile.toObject(), username };
-      })
-    );
-    res.json(profilesWithUsernames);
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching profiles", error });
-  }
-};
-
-// Get a profile by ID with populated user data
-const getProfileById: RequestHandler = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    if (!id) {
-      return res.status(400).json({ 
-        message: "User ID is required",
-        details: "The ID parameter is missing"
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ 
-        message: "Invalid user ID format",
-        details: `The provided ID '${id}' is not a valid MongoDB ObjectId`
-      });
-    }
-
-    const userObjectId = new mongoose.Types.ObjectId(id);
-    const profile = await Profile.findOne({ userID: userObjectId });
-    
-    if (!profile) {
-      return res.status(404).json({ 
-        message: "Profile not found",
-        details: `No profile exists for user ID: ${id}` 
-      });
-    }
-
-    const user = await User.findById(userObjectId).select('username');
     if (!user) {
-      return res.status(404).json({ 
-        message: "User not found",
-        details: "The associated user account no longer exists"
-      });
+      return res.status(404).json({ message: 'Profile not found' });
     }
 
-    // Get follower and following counts using the Follow model
-    const [followersCount, followingCount] = await Promise.all([
-      Follow.countDocuments({ followingId: userObjectId }),
-      Follow.countDocuments({ followerId: userObjectId })
-    ]);
-    
-    const combinedData = {
-      id: profile.userID.toString(),
-      ...profile.toObject(),
-      username: user.username,
-      joinDate: profile.created_at ? profile.created_at.toISOString() : "",
-      _count: {
-        followers: followersCount,
-        following: followingCount,
-        posts: profile._count?.posts || 0,
-        karma: 0,
-      },
-    };
-
-    res.json(combinedData);
+    res.json(user);
   } catch (error) {
-    console.error('Profile fetch error:', error);
-    res.status(500).json({ 
-      message: "Error fetching profile",
-      details: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-};
-
-//Get all followers by user ID
-const getFollowers: RequestHandler = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const followers = await Follow.find({ followingId: id })
-      .populate('followerId', 'username avatar')
-      .lean();
-    
-    const _count = await Follow.countDocuments({ followingId: id });
-    
-    res.json({ followers, _count });
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching followers", error });
-  }
-};
-
-//Get all following by user ID
-const getFollowing: RequestHandler = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const following = await Follow.find({ followerId: id })
-      .populate('followingId', 'username avatar')
-      .lean();
-    
-    const _count = await Follow.countDocuments({ followerId: id });
-    
-    res.json({ following, _count });
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching following", error });
-  }
-}
-
-//Update a profile by ID
-const updateProfile: RequestHandler = async (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-    // Only allow updating specific fields
-    const updateData = profileUpdateSchema.parse(req.body);
-    
-    const profile = await Profile.findOne({ userID: id });
-    if (!profile) {
-      res.status(404).json({ message: "Profile not found" });
-      return;
-    }
-
-    // Ensure user can only update their own profile
-    if (req.user?.id !== id) {
-      res.status(403).json({ message: "Not authorized to update this profile" });
-      return;
-    }
-
-    const updatedProfile = await Profile.findOneAndUpdate(
-      { userID: id },
-      { $set: updateData },
-      { new: true }
-    );
-
-    // Get user data and counts
-    const user = await User.findById(id).select('username');
-    const followersCount = await Follow.countDocuments({ followingId: id });
-    const followingCount = await Follow.countDocuments({ followerId: id });
-
-    const responseData = {
-      ...updatedProfile?.toObject(),
-      username: user?.username || "",
-      _count: {
-        followers: followersCount,
-        following: followingCount,
-        posts: updatedProfile?._count?.posts || 0,
-        karma: 0,
-      },
-    };
-
-    res.json(responseData);
-  } catch (error) {
-    res.status(500).json({ message: "Error updating profile", error });
-  }
-};
-
-// Follow a user
-router.post("/:id/follow", async (req: AuthenticatedRequest, res) => {
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Authentication required" });
-    }
-
-    const targetProfile = await Profile.findOne({ userID: req.params.id });
-    const followerProfile = await Profile.findOne({ userID: req.user.id });
-
-    if (!targetProfile || !followerProfile) {
-      return res.status(404).json({ message: "Profile not found" });
-    }
-
-    // Check if already following
-    const existingFollow = await Follow.findOne({
-      followerId: req.user.id,
-      followingId: req.params.id
-    });
-
-    if (existingFollow) {
-      return res.status(400).json({ message: "Already following this user" });
-    }
-
-    // Create follow relationship
-    const follow = new Follow({
-      followerId: req.user.id,
-      followingId: req.params.id
-    });
-    await follow.save();
-
-    // Update follower counts
-    await Profile.updateOne(
-      { userID: req.params.id },
-      { $inc: { "_count.followers": 1 } }
-    );
-
-    await Profile.updateOne(
-      { userID: req.user.id },
-      { $inc: { "_count.following": 1 } }
-    );
-
-    res.json({ message: "Successfully followed user" });
-  } catch (error) {
-    res.status(500).json({ message: "Error following user", error });
+    logger.error('Error fetching profile by username:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Unfollow a user
-router.delete("/:id/follow", async (req: AuthenticatedRequest, res) => {
+// Search profiles
+router.get('/search', async (req: Request<{}, {}, {}, SearchQuery>, res: Response) => {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Authentication required" });
+    const { query, limit = '10', offset = '0' } = req.query;
+    
+    if (!query) {
+      return res.status(400).json({ message: 'Search query is required' });
     }
 
-    const targetProfile = await Profile.findOne({ userID: req.params.id });
-    const followerProfile = await Profile.findOne({ userID: req.user.id });
-
-    if (!targetProfile || !followerProfile) {
-      return res.status(404).json({ message: "Profile not found" });
-    }
-
-    // Check if actually following
-    const existingFollow = await Follow.findOne({
-      followerId: req.user.id,
-      followingId: req.params.id
-    });
-
-    if (!existingFollow) {
-      return res.status(400).json({ message: "Not following this user" });
-    }
-
-    // Remove follow relationship
-    await Follow.deleteOne({
-      followerId: req.user.id,
-      followingId: req.params.id
-    });
-
-    // Update follower counts
-    await Profile.updateOne(
-      { userID: req.params.id },
-      { $inc: { "_count.followers": -1 } }
-    );
-
-    await Profile.updateOne(
-      { userID: req.user.id },
-      { $inc: { "_count.following": -1 } }
-    );
-
-    res.json({ message: "Successfully unfollowed user" });
-  } catch (error) {
-    res.status(500).json({ message: "Error unfollowing user", error });
-  }
-});
-
-// Check following status
-router.get("/:id/following-status", async (req: AuthenticatedRequest, res) => {
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Authentication required" });
-    }
-
-    const isFollowing = await Follow.exists({
-      followerId: req.user.id,
-      followingId: req.params.id
-    });
-
-    res.json({ isFollowing: !!isFollowing });
-  } catch (error) {
-    res.status(500).json({ message: "Error checking following status", error });
-  }
-});
-
-// Get follow recommendations
-router.get("/recommendations", async (req: AuthenticatedRequest, res) => {
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Authentication required" });
-    }
-
-    // Get the IDs of users the current user is following
-    const following = await Follow.find({ followerId: req.user.id })
-      .select('followingId')
-      .lean();
-    const followingIds = following.map(f => f.followingId);
-
-    // Get profiles the user is not following, excluding themselves
-    const recommendations = await Profile.find({
-      userID: { 
-        $nin: [
-          ...followingIds,
-          req.user.id
-        ] 
-      }
+    const searchRegex = new RegExp(query, 'i');
+    const profiles = await User.find({
+      $or: [
+        { username: searchRegex },
+        { 'name.first': searchRegex },
+        { 'name.last': searchRegex },
+        { description: searchRegex }
+      ]
     })
-    .limit(5)
-    .lean();
+    .select('-password -refreshToken')
+    .limit(parseInt(limit))
+    .skip(parseInt(offset));
 
-    // Populate username for each profile
-    const populatedRecommendations = await Promise.all(
-      recommendations.map(async (profile) => {
-        const user = await User.findById(profile.userID).select('username');
+    const enrichedProfiles = await Promise.all(
+      profiles.map(async (profile: IUser) => {
+        const followersCount = await User.countDocuments({ following: profile._id });
+        const followingCount = await User.countDocuments({ followers: profile._id });
+
         return {
-          ...profile,
-          username: user?.username || undefined,
-          _id: profile.userID // Use userID as _id for consistency
+          ...profile.toObject(),
+          _count: {
+            ...profile._count,
+            followers: followersCount,
+            following: followingCount
+          }
         };
       })
     );
 
-    res.json(populatedRecommendations);
+    res.json(enrichedProfiles);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching recommendations", error });
+    logger.error('Error searching profiles:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-router.post("/", createProfile);
-router.get("/", getProfiles);
-router.get("/:id/followers", getFollowers);
-router.get("/:id/following", getFollowing);
-router.get("/:id", getProfileById);
-router.patch("/:id", updateProfile);
+// Get recommended profiles
+router.get('/recommendations', async (req: Request<{}, {}, {}, { limit?: string }> & { user?: { id: string } }, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const currentUserId = req.user?.id; // Optional now
 
-export default router;
+    logger.info(`Fetching recommendations${currentUserId ? ` for user ${currentUserId}` : ''} with limit ${limit}`);
+
+    // If user is authenticated, exclude them and their following
+    const excludeIds: Types.ObjectId[] = [];
+    if (currentUserId) {
+      const currentUser = await User.findById(currentUserId);
+      if (currentUser) {
+        excludeIds.push(new Types.ObjectId(currentUserId));
+        // Get users they're following from the Follow collection
+        const following = await Follow.find({ 
+          followerUserId: currentUserId,
+          followType: FollowType.USER
+        });
+        following.forEach(f => {
+          if (f.followedId instanceof Types.ObjectId) {
+            excludeIds.push(f.followedId);
+          } else {
+            excludeIds.push(new Types.ObjectId(f.followedId));
+          }
+        });
+      }
+    }
+
+    // Get random users not in excludeIds
+    const recommendations = await User.aggregate([
+      { $match: { _id: { $nin: excludeIds } } },
+      { $sample: { size: limit } },
+      { $project: { password: 0, refreshToken: 0 } }
+    ]);
+
+    logger.info(`Found ${recommendations.length} potential recommendations`);
+
+    // Enrich with follower/following counts
+    const enrichedRecommendations = await Promise.all(
+      recommendations.map(async (profile) => {
+        const [followersCount, followingCount] = await Promise.all([
+          Follow.countDocuments({ followedId: profile._id, followType: FollowType.USER }),
+          Follow.countDocuments({ followerUserId: profile._id, followType: FollowType.USER })
+        ]);
+
+        return {
+          ...profile,
+          _count: {
+            ...profile._count,
+            followers: followersCount,
+            following: followingCount
+          }
+        };
+      })
+    );
+
+    logger.info(`Returning ${enrichedRecommendations.length} enriched recommendations`);
+    res.json(enrichedRecommendations);
+  } catch (error) {
+    logger.error('Error getting profile recommendations:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+export default router; 

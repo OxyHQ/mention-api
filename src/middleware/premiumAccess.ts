@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import Profile from '../models/Profile';
+import User from '../models/User';
+import { logger } from '../utils/logger';
 
 export const checkPremiumAccess = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -8,12 +9,12 @@ export const checkPremiumAccess = async (req: Request, res: Response, next: Next
       return res.status(400).json({ message: "User ID is required" });
     }
 
-    const profile = await Profile.findOne({ userID });
-    if (!profile) {
-      return res.status(404).json({ message: "Profile not found" });
+    const user = await User.findById(userID);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    if (!profile.privacySettings?.analyticsSharing) {
+    if (!user.privacySettings?.analyticsSharing) {
       return res.status(403).json({ 
         message: "Analytics access denied", 
         error: "PREMIUM_REQUIRED",
@@ -23,6 +24,10 @@ export const checkPremiumAccess = async (req: Request, res: Response, next: Next
 
     next();
   } catch (error) {
-    res.status(500).json({ message: "Error checking premium access", error });
+    logger.error('Error checking premium access:', error);
+    res.status(500).json({ 
+      message: "Error checking premium access",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };

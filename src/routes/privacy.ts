@@ -1,8 +1,9 @@
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
-import Profile from "../models/Profile";
+import User from "../models/User";
 import Block from "../models/Block";
 import { authMiddleware } from '../middleware/auth';
 import { z } from "zod";
+import { logger } from '../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -42,13 +43,17 @@ const privacySettingsSchema = z.object({
 const getPrivacySettings = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const profile = await Profile.findOne({ userID: id }).select('privacySettings');
-    if (!profile) {
-      return res.status(404).json({ message: "Profile not found" });
+    const user = await User.findById(id).select('privacySettings');
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-    res.json(profile.privacySettings);
+    res.json(user.privacySettings);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching privacy settings", error });
+    logger.error('Error fetching privacy settings:', error);
+    res.status(500).json({ 
+      message: "Error fetching privacy settings",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -63,19 +68,23 @@ const updatePrivacySettings = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Not authorized to update these settings" });
     }
 
-    const profile = await Profile.findOneAndUpdate(
-      { userID: id },
+    const user = await User.findByIdAndUpdate(
+      id,
       { $set: { privacySettings: settings } },
       { new: true }
-    );
+    ).select('privacySettings');
 
-    if (!profile) {
-      return res.status(404).json({ message: "Profile not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(profile.privacySettings);
+    res.json(user.privacySettings);
   } catch (error) {
-    res.status(500).json({ message: "Error updating privacy settings", error });
+    logger.error('Error updating privacy settings:', error);
+    res.status(500).json({ 
+      message: "Error updating privacy settings",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -88,7 +97,11 @@ const getBlockedUsers = async (req: Request, res: Response) => {
       .lean();
     res.json(blocks);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching blocked users", error });
+    logger.error('Error fetching blocked users:', error);
+    res.status(500).json({ 
+      message: "Error fetching blocked users",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -119,7 +132,11 @@ const blockUser = async (req: Request, res: Response) => {
 
     res.json({ message: "User blocked successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error blocking user", error });
+    logger.error('Error blocking user:', error);
+    res.status(500).json({ 
+      message: "Error blocking user",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -144,7 +161,11 @@ const unblockUser = async (req: Request, res: Response) => {
 
     res.json({ message: "User unblocked successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error unblocking user", error });
+    logger.error('Error unblocking user:', error);
+    res.status(500).json({ 
+      message: "Error unblocking user",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 

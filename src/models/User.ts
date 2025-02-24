@@ -6,6 +6,8 @@ export interface IUser extends Document {
   password: string;
   refreshToken?: string | null;
   bookmarks: mongoose.Types.ObjectId[];
+  following?: mongoose.Types.ObjectId[];
+  followers?: mongoose.Types.ObjectId[];
   name?: {
     first?: string;
     last?: string;
@@ -94,6 +96,20 @@ const UserSchema: Schema = new Schema(
         ref: "Post",
         default: [],
         select: true,
+      },
+    ],
+    following: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: [],
+      },
+    ],
+    followers: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: [],
       },
     ],
     name: {

@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
 import Analytics from "../models/Analytics";
 import Post from "../models/Post";
-import Profile from "../models/Profile";
+import User from "../models/User";
 import { getDateRange } from "./utils/dateUtils";
+import { logger } from '../utils/logger';
 
 export const getAnalytics = async (req: Request, res: Response) => {
   try {
@@ -29,16 +30,20 @@ export const getAnalytics = async (req: Request, res: Response) => {
       }}
     ]);
 
-    // Get growth metrics
-    const profileStats = await Profile.findOne({ userID }, { _count: 1 });
+    // Get growth metrics from User model
+    const userStats = await User.findById(userID).select('_count');
     
     res.json({
       timeSeriesData: analytics,
       aggregate: postStats[0] || {},
-      growth: profileStats?._count || {}
+      growth: userStats?._count || {}
     });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching analytics", error });
+    logger.error('Error fetching analytics:', error);
+    res.status(500).json({ 
+      message: "Error fetching analytics",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -67,7 +72,11 @@ export const updateAnalytics = async (req: Request, res: Response) => {
 
     res.json({ message: "Analytics updated successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error updating analytics", error });
+    logger.error('Error updating analytics:', error);
+    res.status(500).json({ 
+      message: "Error updating analytics",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -106,7 +115,11 @@ export const getHashtagStats = async (req: Request, res: Response) => {
       totalReplies: 0
     });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching hashtag stats", error });
+    logger.error('Error fetching hashtag stats:', error);
+    res.status(500).json({ 
+      message: "Error fetching hashtag stats",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -134,7 +147,11 @@ export const getContentViewers = async (req: Request, res: Response) => {
     
     res.json(viewers);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching content viewers", error });
+    logger.error('Error fetching content viewers:', error);
+    res.status(500).json({ 
+      message: "Error fetching content viewers",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -164,7 +181,11 @@ export const getInteractions = async (req: Request, res: Response) => {
     
     res.json(interactions);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching interactions", error });
+    logger.error('Error fetching interactions:', error);
+    res.status(500).json({ 
+      message: "Error fetching interactions",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -195,7 +216,11 @@ export const getTopPosts = async (req: Request, res: Response) => {
     
     res.json(topPosts);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching top posts", error });
+    logger.error('Error fetching top posts:', error);
+    res.status(500).json({ 
+      message: "Error fetching top posts",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -204,31 +229,31 @@ export const getFollowerDetails = async (req: Request, res: Response) => {
     const { userID, period = "weekly" } = req.query;
     const { startDate, endDate } = getDateRange(period as string);
     
-    const followerStats = await Profile.aggregate([
-      { $match: { userID } },
+    const followerStats = await User.aggregate([
+      { $match: { _id: userID } },
       { $lookup: {
-        from: "followers",
-        localField: "_id",
-        foreignField: "followingID",
-        as: "followers"
+        from: "users",
+        localField: "followers",
+        foreignField: "_id",
+        as: "followerDetails"
       }},
       { $project: {
         totalFollowers: { $size: "$followers" },
         newFollowers: {
           $size: {
             $filter: {
-              input: "$followers",
+              input: "$followerDetails",
               as: "follower",
-              cond: { $gte: ["$$follower.created_at", startDate] }
+              cond: { $gte: ["$$follower.createdAt", startDate] }
             }
           }
         },
         activeFollowers: {
           $size: {
             $filter: {
-              input: "$followers",
+              input: "$followerDetails",
               as: "follower",
-              cond: { $gte: ["$$follower.lastInteraction", startDate] }
+              cond: { $gte: ["$$follower.updatedAt", startDate] }
             }
           }
         }
@@ -237,6 +262,10 @@ export const getFollowerDetails = async (req: Request, res: Response) => {
     
     res.json(followerStats[0] || { totalFollowers: 0, newFollowers: 0, activeFollowers: 0 });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching follower details", error });
+    logger.error('Error fetching follower details:', error);
+    res.status(500).json({ 
+      message: "Error fetching follower details",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };

@@ -2,7 +2,6 @@ import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User, { IUser } from "../models/User";
-import Profile from "../models/Profile";
 import Notification from "../models/Notification";
 import { AuthenticationError } from '../utils/authErrors';
 import dotenv from 'dotenv';
@@ -67,13 +66,56 @@ router.post("/signup", async (req: Request, res: Response) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Create user document with explicit field setting
+    // Create user document with initialized profile fields
     const userFields = {
       username,
       email,
       password: hashedPassword,
       bookmarks: [],
-      refreshToken: null
+      refreshToken: null,
+      name: { first: "", last: "" },
+      privacySettings: {
+        isPrivateAccount: false,
+        hideOnlineStatus: false,
+        hideLastSeen: false,
+        profileVisibility: true,
+        postVisibility: true,
+        twoFactorEnabled: false,
+        loginAlerts: true,
+        blockScreenshots: false,
+        secureLogin: true,
+        biometricLogin: false,
+        showActivity: true,
+        allowTagging: true,
+        allowMentions: true,
+        hideReadReceipts: false,
+        allowComments: true,
+        allowDirectMessages: true,
+        dataSharing: true,
+        locationSharing: false,
+        analyticsSharing: true,
+        sensitiveContent: false,
+        autoFilter: true,
+        muteKeywords: false,
+      },
+      associated: {
+        lists: 0,
+        feedgens: 0,
+        starterPacks: 0,
+        labeler: false,
+      },
+      labels: [],
+      description: "",
+      coverPhoto: "",
+      location: "",
+      website: "",
+      pinnedPost: { cid: "", uri: "" },
+      _count: {
+        followers: 0,
+        following: 0,
+        posts: 0,
+        karma: 0,
+      }
     };
 
     console.log('Creating user with fields:', {
@@ -135,26 +177,6 @@ router.post("/signup", async (req: Request, res: Response) => {
       throw new Error(`Error saving user: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // Create associated profile
-    await Profile.create({ 
-      user: savedUser._id,
-      userID: savedUser._id.toString(),
-      name: { first: "", last: "" },
-      avatar: "",
-      associated: {
-        lists: 0,
-        feedgens: 0,
-        starterPacks: 0,
-        labeler: false
-      },
-      labels: [],
-      description: "",
-      banner: "",
-      pinnedPosts: { id: "" },
-      created_at: new Date(),
-      indexedAt: new Date()
-    });
-
     // Create welcome notification
     await new Notification({
       recipientId: savedUser._id,
@@ -210,8 +232,10 @@ router.post("/login", async (req: Request, res: Response) => {
       });
     }
 
-    // Find user with password
-    const user = await User.findOne({ username }).select('+password +refreshToken');
+    // Find user with password and profile fields
+    const user = await User.findOne({ username })
+      .select('+password +refreshToken name avatar privacySettings');
+      
     if (!user) {
       logger.warn(`Login attempt failed: User not found - ${username}`);
       return res.status(401).json({ 
@@ -245,30 +269,6 @@ router.post("/login", async (req: Request, res: Response) => {
         message: "Login failed - Unable to complete authentication"
       });
     }
-
-    // Get or create user profile
-    let profile = await Profile.findOne({ user: user._id });
-    if (!profile) {
-      logger.info(`Creating missing profile for user ${user._id}`);
-      profile = await Profile.create({ 
-        user: user._id,
-        userID: user._id.toString(),
-        name: { first: "", last: "" },
-        avatar: "",
-        associated: {
-          lists: 0,
-          feedgens: 0,
-          starterPacks: 0,
-          labeler: false
-        },
-        labels: [],
-        description: "",
-        banner: "",
-        pinnedPosts: { id: "" },
-        created_at: new Date(),
-        indexedAt: new Date()
-      });
-    }
     
     // Return success response
     return res.status(200).json({
@@ -280,8 +280,9 @@ router.post("/login", async (req: Request, res: Response) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        name: profile?.name || {},
-        avatarSource: profile?.avatar ? { uri: profile.avatar } : null
+        name: user.name || {},
+        avatarSource: user.avatar ? { uri: user.avatar } : null,
+        privacySettings: user.privacySettings
       }
     });
   } catch (error) {
@@ -443,6 +444,121 @@ router.get("/validate", async (req: Request, res: Response) => {
     return res.status(500).json({ 
       valid: false, 
       message: "Validation error" 
+    });
+  }
+});
+
+router.post("/register", async (req: Request, res: Response) => {
+  try {
+    const { username, email, password } = req.body;
+
+    // Validate input
+    if (!username || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+        details: {
+          username: !username ? "Username is required" : null,
+          email: !email ? "Email is required" : null,
+          password: !password ? "Password is required" : null
+        }
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      $or: [{ username }, { email }]
+    });
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists",
+        details: {
+          username: existingUser.username === username ? "Username is already taken" : null,
+          email: existingUser.email === email ? "Email is already registered" : null
+        }
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new user with initialized profile fields
+    const user = new User({
+      username,
+      email,
+      password: hashedPassword,
+      name: { first: "", last: "" },
+      privacySettings: {
+        isPrivateAccount: false,
+        hideOnlineStatus: false,
+        hideLastSeen: false,
+        profileVisibility: true,
+        postVisibility: true,
+        twoFactorEnabled: false,
+        loginAlerts: true,
+        blockScreenshots: false,
+        secureLogin: true,
+        biometricLogin: false,
+        showActivity: true,
+        allowTagging: true,
+        allowMentions: true,
+        hideReadReceipts: false,
+        allowComments: true,
+        allowDirectMessages: true,
+        dataSharing: true,
+        locationSharing: false,
+        analyticsSharing: true,
+        sensitiveContent: false,
+        autoFilter: true,
+        muteKeywords: false,
+      },
+      associated: {
+        lists: 0,
+        feedgens: 0,
+        starterPacks: 0,
+        labeler: false,
+      },
+      labels: [],
+      _count: {
+        followers: 0,
+        following: 0,
+        posts: 0,
+        karma: 0,
+      }
+    });
+
+    await user.save();
+
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokens(user._id.toString(), username);
+
+    // Store refresh token hash
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    user.refreshToken = refreshTokenHash;
+    await user.save();
+
+    // Return success response
+    return res.status(201).json({
+      success: true,
+      message: "User registered successfully",
+      accessToken,
+      refreshToken,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        privacySettings: user.privacySettings
+      }
+    });
+  } catch (error) {
+    logger.error('Registration error:', error);
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred during registration",
+      error: error instanceof Error ? error.message : "Unknown error"
     });
   }
 });

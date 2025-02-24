@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import Subscription from "../models/Subscription";
-import Profile from "../models/Profile";
+import User from "../models/User";
+import { logger } from '../utils/logger';
 
 export const getSubscription = async (req: Request, res: Response) => {
   try {
@@ -8,7 +9,11 @@ export const getSubscription = async (req: Request, res: Response) => {
     const subscription = await Subscription.findOne({ userId });
     res.json(subscription || { plan: "basic" });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching subscription", error });
+    logger.error('Error fetching subscription:', error);
+    res.status(500).json({ 
+      message: "Error fetching subscription",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -61,9 +66,9 @@ export const updateSubscription = async (req: Request, res: Response) => {
       { upsert: true, new: true }
     );
 
-    // Update profile analytics sharing based on subscription
-    await Profile.findOneAndUpdate(
-      { userID: userId },
+    // Update user analytics sharing based on subscription
+    await User.findByIdAndUpdate(
+      userId,
       { 
         $set: { 
           "privacySettings.analyticsSharing": features.analytics
@@ -73,7 +78,11 @@ export const updateSubscription = async (req: Request, res: Response) => {
 
     res.json(subscription);
   } catch (error) {
-    res.status(500).json({ message: "Error updating subscription", error });
+    logger.error('Error updating subscription:', error);
+    res.status(500).json({ 
+      message: "Error updating subscription",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -92,6 +101,10 @@ export const cancelSubscription = async (req: Request, res: Response) => {
 
     res.json(subscription);
   } catch (error) {
-    res.status(500).json({ message: "Error canceling subscription", error });
+    logger.error('Error canceling subscription:', error);
+    res.status(500).json({ 
+      message: "Error canceling subscription",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };

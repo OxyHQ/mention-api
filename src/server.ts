@@ -495,7 +495,6 @@ db.once("open", () => {
 });
 db.once("open", () => {
   require("./models/User");
-  require("./models/Profile");
   require("./models/Post");
   require("./models/Block");
 });
