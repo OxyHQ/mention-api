@@ -582,7 +582,20 @@ export class FeedController {
     async getBookmarksFeed(req: AuthRequest, res: Response, next: NextFunction) {
         try {
             const { limit = 20, cursor } = req.query;
-            const userId = req.user?._id;
+            
+            // Extract user ID from the request, handling different formats
+            const userId = req.user?.id || (req.user as any)?._id;
+
+            // Debug authentication information
+            console.log('Auth debug for bookmarks feed:', {
+                hasUser: !!req.user,
+                userFields: req.user ? Object.keys(req.user) : [],
+                userId,
+                headers: {
+                    authorization: req.headers.authorization ? 'Bearer [redacted]' : 'none',
+                    contentType: req.headers['content-type']
+                }
+            });
 
             if (!userId) {
                 return res.status(401).json({
@@ -591,11 +604,16 @@ export class FeedController {
                 });
             }
 
+            // Convert string ID to ObjectId if needed
+            const userIdObj = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
             // Build query
             const query: any = {
-                bookmarks: userId,
-                ...(cursor && { _id: { $lt: cursor } })
+                bookmarks: userIdObj,
+                ...(cursor && { _id: { $lt: new mongoose.Types.ObjectId(cursor as string) } })
             };
+
+            console.log('Bookmarks feed query:', JSON.stringify(query, null, 2));
 
             // Fetch posts
             const posts = await Post.find(query)
@@ -606,8 +624,15 @@ export class FeedController {
                     select: 'username name avatar email description'
                 })
                 .populate({
-                    path: 'quoted_post',
+                    path: 'quoted_post_id',
                     populate: { 
+                        path: 'userID',
+                        select: 'username name avatar email description'
+                    }
+                })
+                .populate({
+                    path: 'repost_of',
+                    populate: {
                         path: 'userID',
                         select: 'username name avatar email description'
                     }
@@ -615,7 +640,11 @@ export class FeedController {
                 .populate({
                     path: 'mentions',
                     select: 'username name avatar email description'
-                });
+                })
+                .populate('likes', '_id')
+                .populate('reposts', '_id')
+                .populate('replies', '_id')
+                .populate('bookmarks', '_id');
 
             // Check if there are more posts
             const hasMore = posts.length > Number(limit);
@@ -624,12 +653,35 @@ export class FeedController {
             // Get the next cursor
             const nextCursor = posts.length > 0 ? posts[posts.length - 1]._id : null;
 
-            // Transform posts to include bookmark status
-            const transformedPosts = posts.map(post => ({
-                ...post.toObject(),
-                id: post._id,
-                isBookmarked: true
-            }));
+            // Transform posts to include bookmark status and proper author mapping
+            const transformedPosts = posts.map(post => {
+                const postObj = post.toObject();
+                
+                // Create a properly typed quoted post object if it exists
+                let quotedPost = null;
+                if (postObj.quoted_post_id && typeof postObj.quoted_post_id === 'object') {
+                    const quotedPostObj = postObj.quoted_post_id as any;
+                    quotedPost = {
+                        ...quotedPostObj,
+                        id: quotedPostObj._id,
+                        author: quotedPostObj.userID
+                    };
+                }
+                
+                return {
+                    ...postObj,
+                    id: post._id,
+                    author: postObj.userID, // Map userID to author for frontend consistency
+                    isBookmarked: true,
+                    _count: {
+                        likes: post.likes?.length || 0,
+                        reposts: post.reposts?.length || 0,
+                        replies: post.replies?.length || 0,
+                        bookmarks: post.bookmarks?.length || 0
+                    },
+                    quoted_post: quotedPost
+                };
+            });
 
             res.json({
                 data: {
@@ -639,6 +691,7 @@ export class FeedController {
                 }
             });
         } catch (error) {
+            console.error('Error fetching bookmarks feed:', error);
             next(createError(500, 'Error fetching bookmarks feed'));
         }
     }

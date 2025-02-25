@@ -352,24 +352,36 @@ export const unlikePost = async (req: AuthenticatedRequest, res: Response) => {
 export const bookmarkPost = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const postId = req.params.id;
-    const userId = req.user?._id;
+    
+    // Extract user ID from the request, handling different formats
+    // The auth middleware sets req.user.id, but we need to handle both formats
+    const userId = req.user?.id || (req.user as any)?._id;
+
+    // Debug authentication information
+    console.log('Auth debug for bookmark:', {
+      hasUser: !!req.user,
+      userFields: req.user ? Object.keys(req.user) : [],
+      userId,
+      headers: {
+        authorization: req.headers.authorization ? 'Bearer [redacted]' : 'none',
+        contentType: req.headers['content-type']
+      }
+    });
 
     if (!userId) {
-      console.log('Auth debug:', {
-        hasUser: !!req.user,
-        userFields: req.user ? Object.keys(req.user) : [],
-        userId: req.user?._id,
-      });
       return res.status(401).json({
         error: 'Authentication required',
         message: 'User ID not found in request'
       });
     }
 
+    // Convert string ID to ObjectId if needed
+    const userIdObj = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
     const post = await Post.findByIdAndUpdate(
       postId,
       {
-        $addToSet: { bookmarks: userId },
+        $addToSet: { bookmarks: userIdObj },
       },
       { new: true }
     )
@@ -386,7 +398,7 @@ export const bookmarkPost = async (req: AuthRequest, res: Response, next: NextFu
     }
 
     // Also update the user's bookmarks
-    await User.findByIdAndUpdate(userId, {
+    await User.findByIdAndUpdate(userIdObj, {
       $addToSet: { bookmarks: postId }
     });
 
@@ -396,7 +408,7 @@ export const bookmarkPost = async (req: AuthRequest, res: Response, next: NextFu
       io.of('/api/posts').emit('postUpdate', {
         type: 'bookmark',
         postId: post._id,
-        userId,
+        userId: userIdObj,
         _count: {
           likes: post.likes.length,
           reposts: post.reposts.length,
@@ -419,7 +431,20 @@ export const bookmarkPost = async (req: AuthRequest, res: Response, next: NextFu
 export const unbookmarkPost = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const postId = req.params.id;
-    const userId = req.user?._id;
+    
+    // Extract user ID from the request, handling different formats
+    const userId = req.user?.id || (req.user as any)?._id;
+
+    // Debug authentication information
+    console.log('Auth debug for unbookmark:', {
+      hasUser: !!req.user,
+      userFields: req.user ? Object.keys(req.user) : [],
+      userId,
+      headers: {
+        authorization: req.headers.authorization ? 'Bearer [redacted]' : 'none',
+        contentType: req.headers['content-type']
+      }
+    });
 
     if (!userId) {
       return res.status(401).json({
@@ -428,10 +453,13 @@ export const unbookmarkPost = async (req: AuthRequest, res: Response, next: Next
       });
     }
 
+    // Convert string ID to ObjectId if needed
+    const userIdObj = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
     const post = await Post.findByIdAndUpdate(
       postId,
       {
-        $pull: { bookmarks: userId },
+        $pull: { bookmarks: userIdObj },
       },
       { new: true }
     )
@@ -447,13 +475,18 @@ export const unbookmarkPost = async (req: AuthRequest, res: Response, next: Next
       });
     }
 
+    // Also update the user's bookmarks
+    await User.findByIdAndUpdate(userIdObj, {
+      $pull: { bookmarks: postId }
+    });
+
     // Emit socket event
     const io = getIO();
     if (io) {
       io.of('/api/posts').emit('postUpdate', {
         type: 'unbookmark',
         postId: post._id,
-        userId,
+        userId: userIdObj,
         _count: {
           likes: post.likes.length,
           reposts: post.reposts.length,
@@ -468,6 +501,7 @@ export const unbookmarkPost = async (req: AuthRequest, res: Response, next: Next
       bookmarkCount: post.bookmarks.length
     });
   } catch (error) {
+    console.error('Unbookmark error:', error);
     next(createError(500, 'Error unbookmarking post'));
   }
 };
