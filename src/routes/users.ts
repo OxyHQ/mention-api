@@ -45,7 +45,7 @@ router.put('/:userId', authMiddleware, validateObjectId, async (req: AuthRequest
       return res.status(403).json({ message: 'Not authorized to update this profile' });
     }
 
-    const allowedUpdates = ['name', 'avatar', 'description', 'location', 'website', 'labels'] as const;
+    const allowedUpdates = ['name', 'avatar', 'coverPhoto', 'description', 'location', 'website', 'labels'] as const;
     type AllowedUpdate = typeof allowedUpdates[number];
     
     const updates = Object.entries(req.body)
@@ -54,6 +54,12 @@ router.put('/:userId', authMiddleware, validateObjectId, async (req: AuthRequest
         ...obj,
         [key]: value
       }), {} as Partial<Pick<IUser, AllowedUpdate>>);
+
+    console.log('Profile update request:', {
+      userId: req.params.userId,
+      requestBody: req.body,
+      filteredUpdates: updates
+    });
 
     const user = await User.findByIdAndUpdate(
       req.params.userId,
