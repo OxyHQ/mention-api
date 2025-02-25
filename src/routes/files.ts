@@ -170,7 +170,7 @@ router.get("/list/:userID", (async (req: AuthenticatedRequest, res: Response) =>
       return res.status(400).json({ message: "Invalid userID" });
     }
 
-    if (!req.user?._id || req.user._id.toString() !== req.params.userID) {
+    if (!req.user?.id || req.user.id !== req.params.userID) {
       return res.status(403).json({ message: "Unauthorized to access these files" });
     }
 

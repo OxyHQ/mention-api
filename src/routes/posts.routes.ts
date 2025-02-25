@@ -16,17 +16,19 @@ import {
 
 const router = Router();
 
+// Public routes
+router.get('/', getPosts);  // Public timeline/posts
+router.get('/:id', getPostById);  // Public post viewing
+
 // Protected routes
 router.use(authMiddleware);
 
-// Post CRUD
+// Post CRUD operations that require auth
 router.post('/', createPost);
-router.get('/', getPosts);
-router.get('/:id', getPostById);
 router.put('/:id', updatePost);
 router.delete('/:id', deletePost);
 
-// Post actions
+// Post actions that require auth
 router.post('/:id/like', likePost);
 router.delete('/:id/like', unlikePost);
 router.post('/:id/repost', repostPost);
