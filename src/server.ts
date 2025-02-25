@@ -14,8 +14,8 @@ import fileRoutes from "./routes/files";
 import listsRoutes from "./routes/lists";
 import hashtagsRoutes from "./routes/hashtags";
 import createChatRouter from "./routes/chat";
-import User from "./models/User";
-import Post from "./models/Post";
+import { User } from "./models/User";
+import { Post } from "./models/Post";
 import searchRoutes from "./routes/search";
 import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import Notification from "./models/Notification";
@@ -24,6 +24,9 @@ import analyticsRoutes from "./routes/analytics.routes";
 import Block from "./models/Block";
 import subscriptionRoutes from './routes/subscription.routes';
 import paymentRoutes from './routes/payment.routes';
+import { setupPostSocket } from './sockets/postSocket';
+import { initializeIO } from './utils/socket';
+import feedRoutes from './routes/feed';
 
 dotenv.config();
 
@@ -432,6 +435,9 @@ app.set("privacyNamespace", privacyNamespace);
 
 // Set up chat routes with socket namespace
 app.use("/api/chat", createChatRouter(chatNamespace));
+
+// Routes
+app.use('/api/feed', feedRoutes);
 
 // Logging for file upload requests
 app.use("/api/files/upload", (req, res, next) => {

@@ -1,8 +1,11 @@
 import express, { Request, Response } from "express";
 import Post from "../models/Post";
 import { authMiddleware } from '../middleware/auth';
+import { Router } from 'express';
+import { HashtagsController } from '../controllers/hashtags.controller';
 
 const router = express.Router();
+const hashtagsController = new HashtagsController();
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -17,7 +20,7 @@ router.get("/", async (req: Request, res: Response) => {
       hashtags.forEach((hashtag) => {
         const tag = hashtag.toLowerCase();
         if (!acc[tag]) {
-          acc[tag] = { count: 0, createdAt: post.createdAt as Date, text: hashtag.toLowerCase().substring(1) as string };
+          acc[tag] = { count: 0, createdAt: post.created_at as Date, text: hashtag.toLowerCase().substring(1) as string };
         }
         acc[tag].count += 1;
       });
@@ -34,5 +37,8 @@ router.get("/", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Error fetching hashtags from posts", error });
   }
 });
+
+// Search hashtags
+router.post('/search', hashtagsController.searchHashtags.bind(hashtagsController));
 
 export default router;

@@ -4,6 +4,7 @@ import Follow, { FollowType } from '../models/Follow';
 import { authMiddleware } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { Types } from 'mongoose';
+import { UsersController } from '../controllers/users.controller';
 
 interface AuthRequest extends Request {
   user?: {
@@ -12,6 +13,7 @@ interface AuthRequest extends Request {
 }
 
 const router = Router();
+const usersController = new UsersController();
 
 // Middleware to validate ObjectId
 const validateObjectId = (req: Request, res: Response, next: NextFunction) => {
@@ -283,5 +285,8 @@ router.get('/:userId/following-status', authMiddleware, validateObjectId, async 
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
+// Search users
+router.post('/search', usersController.searchUsers.bind(usersController));
 
 export default router;

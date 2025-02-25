@@ -113,7 +113,7 @@ const UserSchema: Schema = new Schema(
       },
     ],
     name: {
-      first: { type: String },
+      first: { type: String, required: true },
       last: { type: String },
     },
     privacySettings: {
@@ -152,16 +152,7 @@ const UserSchema: Schema = new Schema(
     coverPhoto: { type: String },
     location: { type: String },
     website: { type: String },
-    pinnedPost: {
-      cid: { type: String },
-      uri: { type: String },
-    },
-    _count: {
-      followers: { type: Number, default: 0 },
-      following: { type: Number, default: 0 },
-      posts: { type: Number, default: 0 },
-      karma: { type: Number, default: 0 },
-    },
+    pinnedPosts: [{ type: Schema.Types.ObjectId, ref: "Post", default: [] }],
   },
   {
     timestamps: true,
@@ -189,4 +180,28 @@ UserSchema.pre("save", function (next) {
   next();
 });
 
-export default mongoose.model<IUser>("User", UserSchema);
+// Indexes
+UserSchema.index({ username: 1 });
+UserSchema.index({ email: 1 });
+UserSchema.index({ following: 1 });
+UserSchema.index({ followers: 1 });
+
+// Virtual field for post count
+UserSchema.virtual('postCount').get(async function() {
+  const Post = mongoose.model('Post');
+  const count = await Post.countDocuments({ userID: this._id });
+  return count;
+});
+
+// Pre-save middleware to update post count
+UserSchema.pre('save', async function(next) {
+  if (this.isModified('_count.posts')) {
+    const Post = mongoose.model('Post');
+    const count = await Post.countDocuments({ userID: this._id });
+    this.set('_count.posts', count);
+  }
+  next();
+});
+
+export const User = mongoose.model<IUser>('User', UserSchema);
+export default User;
