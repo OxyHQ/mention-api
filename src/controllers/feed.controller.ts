@@ -47,6 +47,7 @@ interface TransformedPost {
     isLiked: boolean;
     isReposted: boolean;
     isBookmarked: boolean;
+    media?: any[];
 }
 
 export class FeedController {
@@ -99,7 +100,8 @@ export class FeedController {
             },
             isLiked: postObj.likes?.some((like: any) => like._id.toString() === postObj.userID._id.toString()) || false,
             isReposted: postObj.reposts?.some((repost: any) => repost._id.toString() === postObj.userID._id.toString()) || false,
-            isBookmarked: postObj.bookmarks?.some((bookmark: any) => bookmark._id.toString() === postObj.userID._id.toString()) || false
+            isBookmarked: postObj.bookmarks?.some((bookmark: any) => bookmark._id.toString() === postObj.userID._id.toString()) || false,
+            media: postObj.media || []
         };
         
         // Handle quoted post if it exists
