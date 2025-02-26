@@ -35,7 +35,7 @@ const server = http.createServer(app);
 // Apply CORS middleware with proper configuration
 app.use(
   cors({
-    origin: ['https://mention.earth', 'http://localhost:3000'], // Explicitly list allowed origins
+    origin: ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'], // Explicitly list allowed origins
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
