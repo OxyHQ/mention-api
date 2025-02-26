@@ -108,8 +108,8 @@ export const createPost = async (req: AuthRequest, res: Response) => {
     // Emit socket event for new post
     const io = getIO();
     if (io && populatedPost) {
-      console.log('Emitting newPost event to /api/posts namespace');
-      io.of('/api/posts').emit('newPost', { 
+      console.log('Emitting newPost event to /posts namespace');
+      io.of('/posts').emit('newPost', { 
         post: {
           ...populatedPost.toObject(),
           id: populatedPost._id
@@ -290,7 +290,7 @@ export const likePost = async (req: AuthenticatedRequest, res: Response) => {
     // Emit socket event for post like
     const io = getIO();
     if (io) {
-      io.of('/api/posts').emit('postUpdate', {
+      io.of('/posts').emit('postUpdate', {
         type: 'like',
         postId: id,
         userId: userID,
@@ -337,7 +337,7 @@ export const unlikePost = async (req: AuthenticatedRequest, res: Response) => {
     // Emit socket event for post unlike
     const io = getIO();
     if (io) {
-      io.of('/api/posts').emit('postUpdate', {
+      io.of('/posts').emit('postUpdate', {
         type: 'unlike',
         postId: id,
         userId: userID,
@@ -416,7 +416,7 @@ export const bookmarkPost = async (req: AuthRequest, res: Response, next: NextFu
     // Emit socket event
     const io = getIO();
     if (io) {
-      io.of('/api/posts').emit('postUpdate', {
+      io.of('/posts').emit('postUpdate', {
         type: 'bookmark',
         postId: post._id,
         userId: userIdObj,
@@ -494,7 +494,7 @@ export const unbookmarkPost = async (req: AuthRequest, res: Response, next: Next
     // Emit socket event
     const io = getIO();
     if (io) {
-      io.of('/api/posts').emit('postUpdate', {
+      io.of('/posts').emit('postUpdate', {
         type: 'unbookmark',
         postId: post._id,
         userId: userIdObj,
@@ -656,7 +656,7 @@ export const removeRepost = async (req: AuthenticatedRequest, res: Response) => 
     // Emit socket event for repost removal
     const io = getIO();
     if (io && updatedPost) {
-      io.of('/api/posts').emit('postUpdate', {
+      io.of('/posts').emit('postUpdate', {
         type: 'unrepost',
         postId: id,
         userId: userID,
