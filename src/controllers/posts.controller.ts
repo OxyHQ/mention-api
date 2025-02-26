@@ -21,7 +21,7 @@ const extractHashtags = (text: string): string[] => {
 
 export const createPost = async (req: AuthRequest, res: Response) => {
   try {
-    const { text, media, in_reply_to_status_id, quoted_post_id } = req.body;
+    const { text, media, in_reply_to_status_id, quoted_post_id, isDraft, scheduledFor } = req.body;
     const mentionsInput: string[] = req.body.mentions || [];
     const hashtagsInput: string[] = req.body.hashtags || [];
     const userId = req.user?.id;
@@ -57,6 +57,14 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       hashtagIds = hashtagDocs.map(doc => (doc as unknown as { _id: Types.ObjectId })._id);
     }
 
+    // Determine post status
+    let status = 'published';
+    if (isDraft) {
+      status = 'draft';
+    } else if (scheduledFor) {
+      status = 'scheduled';
+    }
+
     // Create the post
     const post = new Post({
       text,
@@ -67,7 +75,10 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       in_reply_to_status_id: in_reply_to_status_id || null,
       quoted_post_id: quoted_post_id || null,
       source: 'web',
-      lang: 'en'
+      lang: 'en',
+      isDraft,
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+      status
     });
 
     await post.save();
@@ -659,6 +670,71 @@ export const removeRepost = async (req: AuthenticatedRequest, res: Response) => 
     res.status(500).json({
       message: "Error removing repost",
       error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+};
+
+export const getDrafts = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: 'User ID not found in request'
+      });
+    }
+
+    const drafts = await Post.find({
+      userID: userId,
+      status: 'draft'
+    })
+    .sort({ created_at: -1 })
+    .populate('userID', 'username name avatar email description')
+    .populate('mentions', 'username name avatar')
+    .populate('hashtags', 'name');
+
+    return res.json({
+      success: true,
+      data: drafts
+    });
+  } catch (error) {
+    console.error('Error fetching drafts:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to fetch drafts'
+    });
+  }
+};
+
+export const getScheduledPosts = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: 'User ID not found in request'
+      });
+    }
+
+    const scheduledPosts = await Post.find({
+      userID: userId,
+      status: 'scheduled',
+      scheduledFor: { $gt: new Date() }
+    })
+    .sort({ scheduledFor: 1 })
+    .populate('userID', 'username name avatar email description')
+    .populate('mentions', 'username name avatar')
+    .populate('hashtags', 'name');
+
+    return res.json({
+      success: true,
+      data: scheduledPosts
+    });
+  } catch (error) {
+    console.error('Error fetching scheduled posts:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to fetch scheduled posts'
     });
   }
 };

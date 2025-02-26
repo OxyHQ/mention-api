@@ -180,9 +180,7 @@ UserSchema.pre("save", function (next) {
   next();
 });
 
-// Indexes
-UserSchema.index({ username: 1 });
-UserSchema.index({ email: 1 });
+// Only create indexes for fields that don't have unique: true in schema
 UserSchema.index({ following: 1 });
 UserSchema.index({ followers: 1 });
 

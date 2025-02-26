@@ -28,14 +28,17 @@ export interface IPost extends Document {
     reposts: number;
     bookmarks: number;
   };
+  isDraft: boolean;
+  scheduledFor: Date | null;
+  status: 'draft' | 'scheduled' | 'published';
 }
 
 const PostSchema = new Schema<IPost>({
-  text: { type: String, required: false },
+  text: { type: String, required: true },
   userID: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   author: { type: Schema.Types.ObjectId, ref: 'User' },
   media: [{ type: String }],
-  hashtags: [{ type: String }],
+  hashtags: [{ type: Schema.Types.ObjectId, ref: 'Hashtag' }],
   mentions: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   quoted_post_id: { type: Schema.Types.ObjectId, ref: 'Post', default: null },
   quoted_post: { type: Schema.Types.ObjectId, ref: 'Post', default: null },
@@ -44,11 +47,16 @@ const PostSchema = new Schema<IPost>({
   source: { type: String, default: 'web' },
   possibly_sensitive: { type: Boolean, default: false },
   lang: { type: String, default: 'en' },
+  created_at: { type: Date, default: Date.now },
+  updated_at: { type: Date, default: Date.now },
   metadata: { type: String },
   replies: [{ type: Schema.Types.ObjectId, ref: 'Post' }],
   likes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   reposts: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-  bookmarks: [{ type: Schema.Types.ObjectId, ref: 'User' }]
+  bookmarks: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  isDraft: { type: Boolean, default: false },
+  scheduledFor: { type: Date, default: null },
+  status: { type: String, enum: ['draft', 'scheduled', 'published'], default: 'published' }
 }, {
   timestamps: {
     createdAt: 'created_at',

@@ -27,6 +27,7 @@ import paymentRoutes from './routes/payment.routes';
 import { setupPostSocket } from './sockets/postSocket';
 import { initializeIO } from './utils/socket';
 import feedRoutes from './routes/feed';
+import pollsRoutes from './routes/polls';
 
 dotenv.config();
 
@@ -531,6 +532,7 @@ app.use("/api/privacy", privacyRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/polls', pollsRoutes);
 
 // Only call listen if this module is run directly
 const PORT = process.env.PORT || 3000;
