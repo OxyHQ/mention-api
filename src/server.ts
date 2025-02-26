@@ -24,9 +24,7 @@ import analyticsRoutes from "./routes/analytics.routes";
 import Block from "./models/Block";
 import subscriptionRoutes from './routes/subscription.routes';
 import paymentRoutes from './routes/payment.routes';
-import { setupPostSocket } from './sockets/postSocket';
-import { initializeIO } from './utils/socket';
-import feedRoutes from './routes/feed';
+import feedRoutes from './routes/feed.routes';
 import pollsRoutes from './routes/polls';
 
 dotenv.config();
