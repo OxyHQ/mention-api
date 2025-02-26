@@ -204,10 +204,10 @@ const configureNamespaceErrorHandling = (namespace: Namespace) => {
 };
 
 // Create and configure namespaces with proper paths
-const chatNamespace = io.of("/api/chat");
+const chatNamespace = io.of("/chat");
 const notificationsNamespace = io.of("/notifications");
-const privacyNamespace = io.of("/api/privacy");
-const postsNamespace = io.of("/api/posts"); // Update posts namespace path
+const privacyNamespace = io.of("/privacy");
+const postsNamespace = io.of("/posts"); // Update posts namespace path
 
 // Configure privacy namespace
 privacyNamespace.on("connection", (socket: AuthenticatedSocket) => {
@@ -441,13 +441,13 @@ app.set("postsNamespace", postsNamespace);
 app.set("privacyNamespace", privacyNamespace);
 
 // Set up chat routes with socket namespace
-app.use("/api/chat", createChatRouter(chatNamespace));
+app.use("/chat", createChatRouter(chatNamespace));
 
 // Routes
-app.use('/api/feed', feedRoutes);
+app.use('/feed', feedRoutes);
 
 // Logging for file upload requests
-app.use("/api/files/upload", (req, res, next) => {
+app.use("/files/upload", (req, res, next) => {
   if (req.method === "POST") {
     console.log("Incoming file upload request:", {
       method: req.method,
@@ -460,18 +460,18 @@ app.use("/api/files/upload", (req, res, next) => {
   next();
 });
 
-app.use("/api/files", fileRoutes);
+app.use("/files", fileRoutes);
 
 // Rate limiting and brute force protection
 app.use((req, res, next) => {
-  if (!req.path.startsWith("/api/files/upload")) {
+  if (!req.path.startsWith("/files/upload")) {
     rateLimiter(req, res, next);
   } else {
     next();
   }
 });
 app.use((req, res, next) => {
-  if (!req.path.startsWith("/api/files/upload")) {
+  if (!req.path.startsWith("/files/upload")) {
     bruteForceProtection(req, res, next);
   } else {
     next();
@@ -480,14 +480,14 @@ app.use((req, res, next) => {
 
 // Body parsing middleware
 app.use((req, res, next) => {
-  if (!req.path.startsWith("/api/files/upload")) {
+  if (!req.path.startsWith("/files/upload")) {
     express.json()(req, res, next);
   } else {
     next();
   }
 });
 app.use((req, res, next) => {
-  if (!req.path.startsWith("/api/files/upload")) {
+  if (!req.path.startsWith("/files/upload")) {
     express.urlencoded({ extended: true })(req, res, next);
   } else {
     next();
@@ -513,7 +513,7 @@ db.once("open", () => {
 });
 
 // API Routes
-app.get("/api", async (req, res) => {
+app.get("", async (req, res) => {
   try {
     const usersCount = await User.countDocuments();
     const postsCount = await Post.countDocuments();
@@ -526,19 +526,19 @@ app.get("/api", async (req, res) => {
     res.status(500).json({ message: "Error fetching stats", error });
   }
 });
-app.use("/api/search", searchRoutes);
-app.use("/api/posts", postsRouter);
-app.use("/api/profiles", profilesRouter);
-app.use("/api/users", usersRouter);
-app.use("/api/lists", listsRoutes);
-app.use("/api/hashtags", hashtagsRoutes);
-app.use("/api/auth", authRouter);
-app.use("/api/notifications", notificationsRouter);
-app.use("/api/privacy", privacyRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/polls', pollsRoutes);
+app.use("/search", searchRoutes);
+app.use("/posts", postsRouter);
+app.use("/profiles", profilesRouter);
+app.use("/users", usersRouter);
+app.use("/lists", listsRoutes);
+app.use("/hashtags", hashtagsRoutes);
+app.use("/auth", authRouter);
+app.use("/notifications", notificationsRouter);
+app.use("/privacy", privacyRoutes);
+app.use("/analytics", analyticsRoutes);
+app.use('/subscriptions', subscriptionRoutes);
+app.use('/payments', paymentRoutes);
+app.use('/polls', pollsRoutes);
 
 // Only call listen if this module is run directly
 const PORT = process.env.PORT || 3000;
