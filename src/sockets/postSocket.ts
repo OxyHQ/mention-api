@@ -10,7 +10,7 @@ interface AuthenticatedSocket extends Socket {
 }
 
 export const setupPostSocket = (io: SocketIOServer<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap>) => {
-  const postsNamespace = io.of('/api/posts');
+  const postsNamespace = io.of('/posts');
 
   // Authentication middleware
   postsNamespace.use(async (socket: AuthenticatedSocket, next) => {
