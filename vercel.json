@@ -11,5 +11,5 @@
             "source": "/(.*)",
             "destination": "src/server.ts"
         }
-    ],
+    ]
 }
