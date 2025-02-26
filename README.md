@@ -303,4 +303,4 @@ Solution: Implement exponential backoff in client
 
 ## License
 
-ISC License
+AGPL License
