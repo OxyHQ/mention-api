@@ -32,6 +32,12 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+app.use(cors({
+  origin: 'https://mention.earth',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Basic middleware setup
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
