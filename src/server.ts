@@ -32,10 +32,21 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Simple OPTIONS preflight handler for all routes
-app.options('*', cors({
-  origin: ['https://mention.earth'],
-  credentials: true,
+// Define CORS configuration object
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    const allowedOrigins = [
+      'https://mention.earth',
+      'http://localhost:3000',
+      'http://localhost:8081'
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: [
     "Content-Type",
@@ -50,46 +61,18 @@ app.options('*', cors({
     "Content-MD5",
     "Date",
     "X-Api-Version"
-  ]
-}));
+  ],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // 24 hours
+};
 
 // Apply CORS middleware with proper configuration
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      const allowedOrigins = [
-        'https://mention.earth',
-        'http://localhost:3000', 
-        'http://localhost:8081'
-      ];
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log(`CORS blocked origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "Content-Length",
-      "Accept",
-      "Accept-Encoding",
-      "Accept-Language",
-      "X-CSRF-Token",
-      "X-Requested-With",
-      "Accept-Version",
-      "Content-MD5",
-      "Date",
-      "X-Api-Version"
-    ],
-    credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-    maxAge: 86400 // Enable CORS preflight request caching for 24 hours
-  })
-);
+app.use(cors(corsOptions));
+
+// Handle OPTIONS preflight requests
+app.options('*', cors(corsOptions));
 
 // Basic middleware setup
 app.use(express.json());
