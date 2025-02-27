@@ -36,10 +36,15 @@ const server = http.createServer(app);
 app.use(
   cors({
     origin: (origin, callback) => {
-      const allowedOrigins = ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'];
+      const allowedOrigins = [
+        'https://mention.earth',
+        'http://localhost:3000', 
+        'http://localhost:8081'
+      ];
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        console.log(`CORS blocked origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -114,7 +119,7 @@ const SOCKET_CONFIG = {
 // Socket.IO Server configuration
 const io = new SocketIOServer(server, {
   cors: {
-    origin: true, // Accept requests from any origin
+    origin: ['https://mention.earth', 'https://www.mention.earth', 'https://api.mention.earth', 'http://localhost:3000', 'http://localhost:8081'],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
