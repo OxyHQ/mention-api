@@ -35,7 +35,14 @@ const server = http.createServer(app);
 // Apply CORS middleware with proper configuration
 app.use(
   cors({
-    origin: ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'], // Explicitly list allowed origins
+    origin: (origin, callback) => {
+      const allowedOrigins = ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'];
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
@@ -52,7 +59,9 @@ app.use(
       "X-Api-Version"
     ],
     credentials: true,
+    preflightContinue: false,
     optionsSuccessStatus: 204,
+    maxAge: 86400 // Enable CORS preflight request caching for 24 hours
   })
 );
 
