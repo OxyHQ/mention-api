@@ -32,6 +32,27 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+// Simple OPTIONS preflight handler for all routes
+app.options('*', cors({
+  origin: ['https://mention.earth'],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "Content-Length",
+    "Accept",
+    "Accept-Encoding",
+    "Accept-Language",
+    "X-CSRF-Token",
+    "X-Requested-With",
+    "Accept-Version",
+    "Content-MD5",
+    "Date",
+    "X-Api-Version"
+  ]
+}));
+
 // Apply CORS middleware with proper configuration
 app.use(
   cors({
