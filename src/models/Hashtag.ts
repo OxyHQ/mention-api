@@ -18,7 +18,7 @@ const HashtagSchema = new Schema<IHashtag>({
 });
 
 // Indexes
-HashtagSchema.index({ name: 1 });
+// Removing redundant index on 'name' as it's already indexed by 'unique: true' in the schema
 HashtagSchema.index({ count: -1 });
 
-export default mongoose.model<IHashtag>('Hashtag', HashtagSchema); 
+export default mongoose.model<IHashtag>('Hashtag', HashtagSchema);
