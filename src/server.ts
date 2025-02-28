@@ -33,9 +33,19 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: 'https://mention.earth',
+  origin: ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Content-Length',
+    'Accept',
+    'Accept-Encoding',
+    'Accept-Language',
+    'Origin',
+    'X-Requested-With'
+  ],
+  credentials: true
 }));
 
 // Basic middleware setup
@@ -87,7 +97,7 @@ const SOCKET_CONFIG = {
 // Socket.IO Server configuration
 const io = new SocketIOServer(server, {
   cors: {
-    origin: ['https://mention.earth', 'https://www.mention.earth', 'https://api.mention.earth', 'http://localhost:3000', 'http://localhost:8081'],
+    origin: ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
