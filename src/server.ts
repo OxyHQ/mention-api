@@ -32,21 +32,21 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({
-  origin: ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'],
+// Configure CORS middleware
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'Content-Length',
-    'Accept',
-    'Accept-Encoding',
-    'Accept-Language',
-    'Origin',
-    'X-Requested-With'
-  ],
-  credentials: true
-}));
+  allowedHeaders: ['X-CSRF-Token', 'X-Requested-With', 'Accept', 'Accept-Version', 'Content-Length', 'Content-MD5', 'Content-Type', 'Date', 'X-Api-Version', 'Authorization'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS middleware early in the middleware chain
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 // Basic middleware setup
 app.use(express.json());
@@ -97,18 +97,10 @@ const SOCKET_CONFIG = {
 // Socket.IO Server configuration
 const io = new SocketIOServer(server, {
   cors: {
-    origin: ['https://mention.earth', 'http://localhost:3000', 'http://localhost:8081'],
+    origin: process.env.CORS_ORIGIN || '*',
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "Content-Length",
-      "Accept",
-      "Accept-Encoding",
-      "Accept-Language",
-    ],
     credentials: true,
-    optionsSuccessStatus: 204,
+    allowedHeaders: ["X-CSRF-Token", "X-Requested-With", "Accept", "Accept-Version", "Content-Length", "Content-MD5", "Content-Type", "Date", "X-Api-Version", "Authorization"]
   },
   transports: ["websocket", "polling"],
   path: "/socket.io",
