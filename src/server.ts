@@ -30,27 +30,32 @@ import pollsRoutes from './routes/polls';
 dotenv.config();
 
 const app = express();
-const server = http.createServer(app);
 
-// Configure CORS middleware
-const corsOptions = {
-  origin: process.env.CORS_ORIGIN || '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['X-CSRF-Token', 'X-Requested-With', 'Accept', 'Accept-Version', 'Content-Length', 'Content-MD5', 'Content-Type', 'Date', 'X-Api-Version', 'Authorization'],
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-};
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "https://mention.earth");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
-// Apply CORS middleware early in the middleware chain
-app.use(cors(corsOptions));
+  // Prevent caching issues
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
 
-// Handle preflight requests explicitly
-app.options('*', cors(corsOptions));
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 // Basic middleware setup
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Create server for local development and testing
+// In Vercel, this will only be used for Socket.io setup but not for serving HTTP
+const server = http.createServer(app);
 
 // Custom socket interface to include user property
 interface AuthenticatedSocket extends Socket {
@@ -96,12 +101,6 @@ const SOCKET_CONFIG = {
 
 // Socket.IO Server configuration
 const io = new SocketIOServer(server, {
-  cors: {
-    origin: process.env.CORS_ORIGIN || '*',
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    credentials: true,
-    allowedHeaders: ["X-CSRF-Token", "X-Requested-With", "Accept", "Accept-Version", "Content-Length", "Content-MD5", "Content-Type", "Date", "X-Api-Version", "Authorization"]
-  },
   transports: ["websocket", "polling"],
   path: "/socket.io",
   pingTimeout: SOCKET_CONFIG.PING_TIMEOUT,
