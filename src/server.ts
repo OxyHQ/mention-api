@@ -108,6 +108,12 @@ const io = new SocketIOServer(server, {
   upgradeTimeout: SOCKET_CONFIG.UPGRADE_TIMEOUT,
   maxHttpBufferSize: SOCKET_CONFIG.MAX_BUFFER_SIZE,
   connectTimeout: SOCKET_CONFIG.CONNECT_TIMEOUT,
+  cors: {
+    origin: process.env.CORS_ORIGIN || "https://mention.earth",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With", "Accept", "Accept-Version", "Content-Length", "Content-MD5", "Date", "X-Api-Version"]
+  },
   perMessageDeflate: {
     threshold: SOCKET_CONFIG.COMPRESSION_THRESHOLD,
     zlibInflateOptions: {
