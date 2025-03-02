@@ -31,8 +31,21 @@ dotenv.config();
 
 const app = express();
 
+// Body parsing middleware - IMPORTANT: Add this before any routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "https://mention.earth");
+  const allowedOrigins = [process.env.CORS_ORIGIN || "https://mention.earth", "http://localhost:8081"];
+  const origin = req.headers.origin;
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
+  }
+  
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version");
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -48,10 +61,6 @@ app.use((req, res, next) => {
 
   next();
 });
-
-// Basic middleware setup
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Create server for local development and testing
 // In Vercel, this will only be used for Socket.io setup but not for serving HTTP
