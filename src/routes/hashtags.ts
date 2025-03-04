@@ -1,14 +1,9 @@
 import express, { Request, Response } from "express";
 import Post from "../models/Post";
-import { authMiddleware } from '../middleware/auth';
-import { Router } from 'express';
 import { HashtagsController } from '../controllers/hashtags.controller';
 
 const router = express.Router();
 const hashtagsController = new HashtagsController();
-
-// Apply auth middleware to all routes
-router.use(authMiddleware);
 
 // Get all hashtags
 router.get("/", async (req: Request, res: Response) => {

@@ -2,28 +2,17 @@ import express from "express";
 import http from "http";
 import mongoose from "mongoose";
 import { Server as SocketIOServer, Socket, Namespace } from "socket.io";
-import cors from "cors";
 import jwt from "jsonwebtoken";
 import postsRouter from "./routes/posts";
-import profilesRouter from "./routes/profiles";
-import usersRouter from "./routes/users";
-import authRouter from "./routes/auth";
 import notificationsRouter from "./routes/notifications";
 import dotenv from "dotenv";
-import fileRoutes from "./routes/files";
 import listsRoutes from "./routes/lists";
 import hashtagsRoutes from "./routes/hashtags";
-import createChatRouter from "./routes/chat";
-import { User } from "./models/User";
 import { Post } from "./models/Post";
 import searchRoutes from "./routes/search";
 import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import Notification from "./models/Notification";
-import privacyRoutes from "./routes/privacy";
 import analyticsRoutes from "./routes/analytics.routes";
-import Block from "./models/Block";
-import subscriptionRoutes from './routes/subscription.routes';
-import paymentRoutes from './routes/payment.routes';
 import feedRoutes from './routes/feed.routes';
 import pollsRoutes from './routes/polls';
 
@@ -200,7 +189,6 @@ const configureNamespaceErrorHandling = (namespace: Namespace) => {
 };
 
 // Create and configure namespaces with proper paths
-const chatNamespace = io.of("/chat");
 const notificationsNamespace = io.of("/notifications");
 const privacyNamespace = io.of("/privacy");
 const postsNamespace = io.of("/posts"); // Update posts namespace path
@@ -248,7 +236,6 @@ privacyNamespace.on("connection", (socket: AuthenticatedSocket) => {
 
 // Apply verification middleware to all namespaces
 [
-  chatNamespace,
   notificationsNamespace,
   postsNamespace,
   privacyNamespace,
@@ -313,7 +300,7 @@ io.on("connection", (socket: AuthenticatedSocket) => {
 });
 
 // Enhanced error handling for namespaces
-[chatNamespace, notificationsNamespace, postsNamespace].forEach(
+[notificationsNamespace, postsNamespace].forEach(
   (namespace: Namespace) => {
     namespace.on("connection_error", (error: Error) => {
       console.error(
@@ -431,64 +418,13 @@ postsNamespace.on("connection", (socket: AuthenticatedSocket) => {
 
 // Store namespaces in app for route access
 app.set("io", io);
-app.set("chatNamespace", chatNamespace);
 app.set("notificationsNamespace", notificationsNamespace);
 app.set("postsNamespace", postsNamespace);
 app.set("privacyNamespace", privacyNamespace);
 
-// Set up chat routes with socket namespace
-app.use("/chat", createChatRouter(chatNamespace));
-
 // Routes
 app.use('/feed', feedRoutes);
 
-// Logging for file upload requests
-app.use("/files/upload", (req, res, next) => {
-  if (req.method === "POST") {
-    console.log("Incoming file upload request:", {
-      method: req.method,
-      contentType: req.headers["content-type"],
-      contentLength: req.headers["content-length"],
-      origin: req.headers.origin,
-      authorization: !!req.headers.authorization,
-    });
-  }
-  next();
-});
-
-app.use("/files", fileRoutes);
-
-// Rate limiting and brute force protection
-app.use((req, res, next) => {
-  if (!req.path.startsWith("/files/upload")) {
-    rateLimiter(req, res, next);
-  } else {
-    next();
-  }
-});
-app.use((req, res, next) => {
-  if (!req.path.startsWith("/files/upload")) {
-    bruteForceProtection(req, res, next);
-  } else {
-    next();
-  }
-});
-
-// Body parsing middleware
-app.use((req, res, next) => {
-  if (!req.path.startsWith("/files/upload")) {
-    express.json()(req, res, next);
-  } else {
-    next();
-  }
-});
-app.use((req, res, next) => {
-  if (!req.path.startsWith("/files/upload")) {
-    express.urlencoded({ extended: true })(req, res, next);
-  } else {
-    next();
-  }
-});
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || "", {
@@ -503,7 +439,6 @@ db.once("open", () => {
   console.log("Connected to MongoDB successfully");
 });
 db.once("open", () => {
-  require("./models/User");
   require("./models/Post");
   require("./models/Block");
 });
@@ -511,11 +446,9 @@ db.once("open", () => {
 // API Routes
 app.get("", async (req, res) => {
   try {
-    const usersCount = await User.countDocuments();
     const postsCount = await Post.countDocuments();
     res.json({
       message: "Welcome to the API",
-      users: usersCount,
       posts: postsCount,
     });
   } catch (error) {
@@ -524,16 +457,10 @@ app.get("", async (req, res) => {
 });
 app.use("/search", searchRoutes);
 app.use("/posts", postsRouter);
-app.use("/profiles", profilesRouter);
-app.use("/users", usersRouter);
 app.use("/lists", listsRoutes);
 app.use("/hashtags", hashtagsRoutes);
-app.use("/auth", authRouter);
 app.use("/notifications", notificationsRouter);
-app.use("/privacy", privacyRoutes);
 app.use("/analytics", analyticsRoutes);
-app.use('/subscriptions', subscriptionRoutes);
-app.use('/payments', paymentRoutes);
 app.use('/polls', pollsRoutes);
 
 // Only call listen if this module is run directly
@@ -545,4 +472,4 @@ if (require.main === module) {
 }
 
 export default server;
-export { io, chatNamespace, notificationsNamespace, privacyNamespace };
+export { io, notificationsNamespace, privacyNamespace };

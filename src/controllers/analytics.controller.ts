@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import Analytics from "../models/Analytics";
 import Post from "../models/Post";
-import User from "../models/User";
 import { getDateRange } from "./utils/dateUtils";
 import { logger } from '../utils/logger';
 
@@ -30,13 +29,10 @@ export const getAnalytics = async (req: Request, res: Response) => {
       }}
     ]);
 
-    // Get growth metrics from User model
-    const userStats = await User.findById(userID).select('_count');
-    
     res.json({
       timeSeriesData: analytics,
       aggregate: postStats[0] || {},
-      growth: userStats?._count || {}
+      growth: {}
     });
   } catch (error) {
     logger.error('Error fetching analytics:', error);
@@ -229,38 +225,7 @@ export const getFollowerDetails = async (req: Request, res: Response) => {
     const { userID, period = "weekly" } = req.query;
     const { startDate, endDate } = getDateRange(period as string);
     
-    const followerStats = await User.aggregate([
-      { $match: { _id: userID } },
-      { $lookup: {
-        from: "users",
-        localField: "followers",
-        foreignField: "_id",
-        as: "followerDetails"
-      }},
-      { $project: {
-        totalFollowers: { $size: "$followers" },
-        newFollowers: {
-          $size: {
-            $filter: {
-              input: "$followerDetails",
-              as: "follower",
-              cond: { $gte: ["$$follower.createdAt", startDate] }
-            }
-          }
-        },
-        activeFollowers: {
-          $size: {
-            $filter: {
-              input: "$followerDetails",
-              as: "follower",
-              cond: { $gte: ["$$follower.updatedAt", startDate] }
-            }
-          }
-        }
-      }}
-    ]);
-    
-    res.json(followerStats[0] || { totalFollowers: 0, newFollowers: 0, activeFollowers: 0 });
+    res.json({ totalFollowers: 0, newFollowers: 0, activeFollowers: 0 });
   } catch (error) {
     logger.error('Error fetching follower details:', error);
     res.status(500).json({ 

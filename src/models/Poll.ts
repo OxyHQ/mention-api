@@ -1,5 +1,4 @@
 import mongoose, { Document, Schema } from "mongoose";
-import { IUser } from './User';
 import { IPost } from './Post';
 
 export interface IPollOption extends Document {
@@ -11,7 +10,7 @@ export interface IPoll extends Document {
   question: string;
   options: IPollOption[];
   postId: string | IPost['_id']; // Allow string for temporary IDs
-  createdBy: IUser['_id'];
+  createdBy: mongoose.Types.ObjectId;
   endsAt: Date;
   isMultipleChoice: boolean;
   isAnonymous: boolean;

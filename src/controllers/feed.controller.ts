@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import Post from '../models/Post';
-import User from '../models/User';
 import Hashtag from '../models/Hashtag';
 import { AuthRequest } from '../types/auth';
 import { createError } from '../utils/error';
@@ -164,19 +163,10 @@ export class FeedController {
             }
 
             // Get users that the current user follows
-            const user = await User.findById(userId).select('following');
-            if (!user) {
-                return res.status(404).json({
-                    error: 'User not found',
-                    message: 'Could not find user profile'
-                });
-            }
-
-            const following = user.following || [];
 
             // Build query
             const query: any = {
-                userID: { $in: [...following, userId] },
+                userID: { $in: [userId] },
                 ...(cursor && { _id: { $lt: new mongoose.Types.ObjectId(cursor as string) } })
             };
 
@@ -279,16 +269,7 @@ export class FeedController {
                 });
             }
 
-            // Check if user exists
-            const user = await User.findById(userId);
-            if (!user) {
-                return res.status(404).json({
-                    error: 'Not found',
-                    message: 'User not found'
-                });
-            }
-
-            console.log('Found user:', { userId: user._id, username: user.username });
+            // Check if user exists 
 
             // Validate limit
             const parsedLimit = Math.min(Number(limit) || 20, 50); // Cap at 50

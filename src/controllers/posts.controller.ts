@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import Post from "../models/Post";
-import User from "../models/User";
 import { logger } from '../utils/logger';
 import mongoose, { Types } from 'mongoose';
 import { getIO } from '../utils/socket';
@@ -33,13 +32,6 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Process mentions
-    let mentionIds: Types.ObjectId[] = [];
-    if (mentionsInput.length > 0) {
-      const users = await User.find({ username: { $in: mentionsInput } });
-      mentionIds = users.map(user => user._id);
-    }
-
     // Process hashtags
     let hashtagIds: Types.ObjectId[] = [];
     if (hashtagsInput.length > 0) {
@@ -70,7 +62,6 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       text,
       userID: userId,
       media: media || [],
-      mentions: mentionIds,
       hashtags: hashtagIds,
       in_reply_to_status_id: in_reply_to_status_id || null,
       quoted_post_id: quoted_post_id || null,
@@ -242,10 +233,6 @@ export const deletePost = async (req: AuthenticatedRequest, res: Response) => {
     }
 
     await Post.findByIdAndDelete(id);
-    
-    await User.findByIdAndUpdate(post.userID, {
-      $inc: { '_count.posts': -1 }
-    });
 
     // Emit socket event for post deletion
     const io = getIO();
@@ -409,9 +396,6 @@ export const bookmarkPost = async (req: AuthRequest, res: Response, next: NextFu
     }
 
     // Also update the user's bookmarks
-    await User.findByIdAndUpdate(userIdObj, {
-      $addToSet: { bookmarks: postId }
-    });
 
     // Emit socket event
     const io = getIO();
@@ -485,11 +469,6 @@ export const unbookmarkPost = async (req: AuthRequest, res: Response, next: Next
         message: 'The requested post does not exist'
       });
     }
-
-    // Also update the user's bookmarks
-    await User.findByIdAndUpdate(userIdObj, {
-      $pull: { bookmarks: postId }
-    });
 
     // Emit socket event
     const io = getIO();

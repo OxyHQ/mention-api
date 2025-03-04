@@ -1,7 +1,5 @@
 import express, { Request, Response } from "express";
 import Notification from "../models/Notification";
-import User from "../models/User";
-import { authMiddleware } from '../middleware/auth';
 import { Server } from 'socket.io';
 
 // Extend Request type to include user property
@@ -13,8 +11,6 @@ interface AuthRequest extends Request {
 }
 
 const router = express.Router();
-
-router.use(authMiddleware);
 
 // Helper function to emit notification event
 const emitNotification = async (req: Request, notification: any) => {

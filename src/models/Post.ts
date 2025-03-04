@@ -1,13 +1,11 @@
 import mongoose, { Document, Schema } from "mongoose";
-import { IUser } from './User';
 
 export interface IPost extends Document {
   text: string;
-  userID: IUser['_id'];
-  author: mongoose.Types.ObjectId;
+  userID: mongoose.Types.ObjectId;
   media: string[];
   hashtags: string[];
-  mentions: IUser['_id'][];
+  mentions: string[];
   quoted_post_id: mongoose.Types.ObjectId | null;
   quoted_post: mongoose.Types.ObjectId | null;
   repost_of: mongoose.Types.ObjectId | null;
@@ -35,11 +33,10 @@ export interface IPost extends Document {
 
 const PostSchema = new Schema<IPost>({
   text: { type: String, required: true },
-  userID: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  author: { type: Schema.Types.ObjectId, ref: 'User' },
+  userID: { type: Schema.Types.ObjectId, required: true },
   media: [{ type: String }],
   hashtags: [{ type: Schema.Types.ObjectId, ref: 'Hashtag' }],
-  mentions: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  mentions: [{ type: Schema.Types.ObjectId }],
   quoted_post_id: { type: Schema.Types.ObjectId, ref: 'Post', default: null },
   quoted_post: { type: Schema.Types.ObjectId, ref: 'Post', default: null },
   repost_of: { type: Schema.Types.ObjectId, ref: 'Post', default: null },
@@ -51,9 +48,9 @@ const PostSchema = new Schema<IPost>({
   updated_at: { type: Date, default: Date.now },
   metadata: { type: String },
   replies: [{ type: Schema.Types.ObjectId, ref: 'Post' }],
-  likes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-  reposts: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-  bookmarks: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  likes: [{ type: Schema.Types.ObjectId }],
+  reposts: [{ type: Schema.Types.ObjectId }],
+  bookmarks: [{ type: Schema.Types.ObjectId }],
   isDraft: { type: Boolean, default: false },
   scheduledFor: { type: Date, default: null },
   status: { type: String, enum: ['draft', 'scheduled', 'published'], default: 'published' }
