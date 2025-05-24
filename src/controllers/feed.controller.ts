@@ -567,4 +567,55 @@ export class FeedController {
       return next(createError(500, 'Error retrieving posts feed'));
     }
   }
+
+  /**
+   * Get posts from users the authenticated user is following
+   */
+  async getFollowingFeed(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return next(createError(401, 'Authentication required'));
+      }
+      const limit = parseInt(req.query.limit as string) || 20;
+      const cursor = req.query.cursor as string;
+      const includeProfiles = req.query.includeProfiles === 'true';
+      // Get the user's following list (assuming a 'following' field or a Follow model)
+      // Example: User has a following array of user IDs
+      // You may need to adjust this based on your actual schema
+      const User = mongoose.model('User');
+      const user = await User.findById(userId).select('following');
+      if (!user || !user.following || !Array.isArray(user.following) || user.following.length === 0) {
+        return res.status(200).json({
+          data: { posts: [], nextCursor: null, hasMore: false }
+        });
+      }
+      const followingIds = user.following.map((id: any) => id.toString());
+      const query: any = {
+        userID: { $in: followingIds },
+        isDraft: { $ne: true },
+        scheduledFor: { $exists: false }
+      };
+      if (cursor) {
+        query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+      }
+      const posts = await Post.find(query)
+        .sort({ created_at: -1 })
+        .limit(limit + 1);
+      const hasMore = posts.length > limit;
+      const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+      const nextCursor = hasMore && resultPosts.length > 0 ? resultPosts[resultPosts.length - 1]._id : null;
+      const transformedPosts = await this.transformPostsWithProfiles(resultPosts, includeProfiles);
+      return res.status(200).json({
+        data: {
+          posts: transformedPosts,
+          nextCursor: nextCursor ? nextCursor.toString() : null,
+          hasMore
+        }
+      });
+    } catch (error) {
+      logger.error('Error in getFollowingFeed:', error);
+      return next(createError(500, 'Error retrieving following feed'));
+    }
+  }
 }

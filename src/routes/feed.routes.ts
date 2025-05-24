@@ -19,5 +19,6 @@ router.get('/home', authMiddleware, feedController.getHomeFeed.bind(feedControll
 router.get('/user/:userId', authMiddleware, feedController.getUserFeed.bind(feedController));
 router.get('/bookmarks', authMiddleware, feedController.getBookmarksFeed.bind(feedController));
 router.get('/replies/:parentId', authMiddleware, feedController.getRepliesFeed.bind(feedController));
+router.get('/following', authMiddleware, feedController.getFollowingFeed.bind(feedController));
 
 export default router;
