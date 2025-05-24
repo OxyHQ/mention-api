@@ -1,89 +1,67 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { logger } from '../utils/logger';
 
-// Interface for authenticated requests
-export interface AuthRequest extends Request {
-    user?: {
-        id: string;
-    };
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    username?: string;
+    role?: string;
+    // Add other user properties as needed
+  };
 }
 
-// Extract user ID from JWT token
-const extractUserIdFromToken = (token: string): string | null => {
-    try {
-        // Using OxyHQ's ACCESS_TOKEN_SECRET for token verification
-        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as { id: string };
-        return decoded.id || null;
-    } catch (error) {
-        logger.error('Error extracting user ID from token:', error);
-        return null;
+export const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authorization header missing'
+      });
     }
-};
 
-// Authentication middleware that relies on OxyHQ authentication
-export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const authHeader = req.headers.authorization;
-        
-        if (!authHeader?.startsWith('Bearer ')) {
-            return res.status(401).json({
-                error: 'Authentication required',
-                message: 'Invalid or missing authorization header'
-            });
-        }
-
-        const token = authHeader.split(' ')[1];
-        
-        // OxyHQ's token secret must be configured
-        if (!process.env.ACCESS_TOKEN_SECRET) {
-            logger.error('ACCESS_TOKEN_SECRET not configured');
-            return res.status(500).json({ 
-                success: false,
-                message: 'Server configuration error'
-            });
-        }
-
-        try {
-            // Just verify the token and extract user ID
-            const userId = extractUserIdFromToken(token);
-            if (!userId) {
-                return res.status(401).json({
-                    error: 'Invalid token',
-                    message: 'User ID not found in token'
-                });
-            }
-
-            // Set just the user ID in request
-            req.user = { id: userId };
-            next();
-        } catch (error) {
-            logger.error('Token verification error:', error);
-            
-            if (error instanceof jwt.TokenExpiredError) {
-                return res.status(401).json({
-                    error: 'Token expired',
-                    message: 'Your session has expired. Please log in again.'
-                });
-            }
-            
-            if (error instanceof jwt.JsonWebTokenError) {
-                return res.status(401).json({
-                    error: 'Invalid token',
-                    message: 'The provided authentication token is invalid'
-                });
-            }
-            
-            return res.status(401).json({
-                error: 'Authentication error',
-                message: 'An error occurred while authenticating your request'
-            });
-        }
-    } catch (error) {
-        logger.error('Auth middleware error:', error);
-        return res.status(500).json({
-            error: 'Server error',
-            message: 'An unexpected error occurred'
-        });
+    const token = authHeader.split(' ')[1]; // Extract token from "Bearer TOKEN"
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required'
+      });
     }
+
+    // Verify JWT token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    
+    // Attach user info to request object
+    req.user = {
+      id: decoded.id || decoded.userId,
+      email: decoded.email,
+      username: decoded.username,
+      role: decoded.role
+    };
+
+    next(); // Continue to the next middleware/controller
+    
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+    
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(403).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication error'
+    });
+  }
 };

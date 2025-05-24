@@ -9,6 +9,10 @@ const feedController = new FeedController();
 router.get('/explore', feedController.getExploreFeed.bind(feedController));
 router.get('/hashtag/:hashtag', feedController.getHashtagFeed.bind(feedController));
 router.get('/post/:id', feedController.getPostById.bind(feedController));
+router.get('/media', feedController.getMediaFeed.bind(feedController));
+router.get('/quotes', feedController.getQuotesFeed.bind(feedController));
+router.get('/reposts', feedController.getRepostsFeed.bind(feedController));
+router.get('/posts', feedController.getPostsFeed.bind(feedController));
 
 // Protected routes - use authMiddleware
 router.get('/home', authMiddleware, feedController.getHomeFeed.bind(feedController));
